@@ -11,6 +11,11 @@ try {
   console.log('2. Bundling server.ts...');
   execSync('npx esbuild server.ts --bundle --platform=node --format=esm --outdir=dist --packages=external', { stdio: 'inherit' });
 
+  // Create 404.html fallback for GitHub Pages SPA routing
+  if (fs.existsSync('dist/index.html')) {
+    fs.copyFileSync('dist/index.html', 'dist/404.html');
+  }
+
   console.log('3. Copying dist to build directory...');
   if (fs.existsSync('dist')) {
     fs.cpSync('dist', 'build', { recursive: true });
