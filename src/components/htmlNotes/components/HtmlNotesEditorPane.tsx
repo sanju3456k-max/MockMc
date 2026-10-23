@@ -182,13 +182,17 @@ export const HtmlNotesEditorPane: React.FC<HtmlNotesEditorPaneProps> = ({
     const val = e.target.value;
     onCodeChange(val);
 
-    // Detect Slash Commands (/ai, /katex, /table, /callout, /)
+    // Detect Slash Commands (/ai, /katex, /table, /callout, or standalone / at line/word boundary)
     if (textareaRef.current) {
       const cursorStart = textareaRef.current.selectionStart || 0;
       const textBeforeCursor = val.substring(0, cursorStart);
       const lastLine = textBeforeCursor.split('\n').pop() || '';
+      
+      // Only trigger if typing a command (/ai, /katex, /table, /callout) or starting an empty line with /
+      const isStandaloneSlash = lastLine.trim() === '/';
+      const isExplicitCmd = /(?:^|\s)\/(?:ai|katex|table|callout)$/i.test(lastLine);
 
-      if (lastLine.trim().endsWith('/ai') || lastLine.trim() === '/' || lastLine.trim().endsWith('/katex') || lastLine.trim().endsWith('/table')) {
+      if (isStandaloneSlash || isExplicitCmd) {
         setSlashMenuOpen(true);
         const lineCountBefore = textBeforeCursor.split('\n').length;
         setSlashMenuPos({
@@ -208,8 +212,13 @@ export const HtmlNotesEditorPane: React.FC<HtmlNotesEditorPaneProps> = ({
     const start = textareaRef.current.selectionStart || 0;
     const end = textareaRef.current.selectionEnd || 0;
     const textBefore = code.substring(0, start);
-    const lastLineStart = textBefore.lastIndexOf('\n') + 1;
-    const linePrefix = code.substring(0, lastLineStart);
+    const lastLine = textBefore.split('\n').pop() || '';
+    
+    // Find the slash trigger that triggered the menu (e.g. "/katex", "/ai", or "/")
+    const slashMatch = lastLine.match(/(\/(?:ai|katex|table|callout)?)$/i);
+    const triggerLen = slashMatch ? slashMatch[1].length : 1;
+    const replaceStart = Math.max(0, start - triggerLen);
+    const linePrefix = code.substring(0, replaceStart);
     const afterCursor = code.substring(end);
 
     if (snippetType === 'ai') {

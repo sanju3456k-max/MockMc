@@ -66,9 +66,37 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     border-radius: 4px !important;
     cursor: text !important;
   }
-  .katex, .katex-display, .katex-html {
+  .katex {
     user-select: all !important;
     cursor: default !important;
+    font-size: 1.05em !important;
+    line-height: inherit !important;
+    text-rendering: optimizeLegibility !important;
+  }
+  .katex-display {
+    user-select: all !important;
+    cursor: default !important;
+    font-size: 1.15em !important;
+    margin: 0.75em 0 !important;
+    padding: 0.2em 0 !important;
+    line-height: 1.4 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+  }
+  .katex-html {
+    user-select: all !important;
+    cursor: default !important;
+  }
+  .katex .mfrac .vlist-t .vlist-r .vlist > span {
+    font-size: 0.92em;
+  }
+  .katex .mrel {
+    margin-left: 0.22em !important;
+    margin-right: 0.22em !important;
+  }
+  .katex .mbin {
+    margin-left: 0.18em !important;
+    margin-right: 0.18em !important;
   }
 
   @media print {
@@ -307,7 +335,10 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
             {left: '\\\\begin{CD}', right: '\\\\end{CD}', display: true}
           ],
           macros: {
-            "\\\\nequal": "\\\\neq",
+            "\\\\ne": "\\\\mathrel{≠}",
+            "\\\\neq": "\\\\mathrel{≠}",
+            "\\\\nequal": "\\\\mathrel{≠}",
+            "\\\\not=": "\\\\mathrel{≠}",
             "\\\\degree": "^\\\\circ",
             "\\\\deg": "^\\\\circ",
             "\\\\le": "\\\\leq",

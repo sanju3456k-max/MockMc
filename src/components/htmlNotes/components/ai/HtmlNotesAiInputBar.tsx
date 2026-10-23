@@ -465,7 +465,7 @@ export const HtmlNotesAiInputBar: React.FC<HtmlNotesAiInputBarProps> = ({
               ? 'Tell Theta how to refine the selected text...'
               : attachments.length > 0
               ? 'Ask questions about attached file(s)...'
-              : 'Ask Theta Notes Assistant to write, refine, style'
+              : 'Ask Theta'
           }
           rows={1}
           disabled={isLoading}

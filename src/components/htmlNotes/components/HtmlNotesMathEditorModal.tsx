@@ -362,6 +362,18 @@ export const HtmlNotesMathEditorModal: React.FC<HtmlNotesMathEditorModalProps> =
   }, [isOpen, initialLatex]);
 
   // Render KaTeX live preview whenever latexInput or isBlockMode changes
+  const mathModalMacros = {
+    '\\ne': '\\mathrel{≠}',
+    '\\neq': '\\mathrel{≠}',
+    '\\nequal': '\\mathrel{≠}',
+    '\\not=': '\\mathrel{≠}',
+    '\\degree': '^\\circ',
+    '\\deg': '^\\circ',
+    '\\le': '\\leq',
+    '\\ge': '\\geq',
+    '\\cbrt': '\\sqrt[3]',
+  };
+
   useEffect(() => {
     if (!previewRef.current || !isOpen) return;
 
@@ -370,7 +382,8 @@ export const HtmlNotesMathEditorModal: React.FC<HtmlNotesMathEditorModalProps> =
       const html = katex.renderToString(latexInput || ' ', {
         displayMode: isBlockMode,
         throwOnError: true,
-        output: 'html'
+        output: 'html',
+        macros: mathModalMacros
       });
       previewRef.current.innerHTML = html;
     } catch (err: any) {
@@ -380,7 +393,8 @@ export const HtmlNotesMathEditorModal: React.FC<HtmlNotesMathEditorModalProps> =
         const fallbackHtml = katex.renderToString(latexInput || ' ', {
           displayMode: isBlockMode,
           throwOnError: false,
-          output: 'html'
+          output: 'html',
+          macros: mathModalMacros
         });
         previewRef.current.innerHTML = fallbackHtml;
       } catch {}

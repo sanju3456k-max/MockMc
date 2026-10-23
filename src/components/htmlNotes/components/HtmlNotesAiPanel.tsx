@@ -292,8 +292,8 @@ export const HtmlNotesAiPanel: React.FC<HtmlNotesAiPanelProps> = ({
                        type: args.action,
                        targetId: args.targetId
                      },
-                     isTargetedEdit: Boolean(activeSelectedText) || args.action === 'REPLACE_SECTION',
-                     selectedText: activeSelectedText || (args.action === 'REPLACE_SECTION' ? args.targetId : null),
+                     isTargetedEdit: Boolean(activeSelectedText),
+                     selectedText: activeSelectedText || null,
                      actionBadge: {
                        label: 'Surgical Patch Proposed',
                        sublabel: `${args.action.replace(/_/g, ' ')}${args.targetId ? ` • "${args.targetId}"` : ''}`,

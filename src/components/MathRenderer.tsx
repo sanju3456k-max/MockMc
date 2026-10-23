@@ -33,7 +33,10 @@ const KATEX_OPTIONS: katex.KatexOptions = {
   trust: true,
   output: 'html',
   macros: {
-    '\\nequal': '\\neq',
+    '\\ne': '\\mathrel{≠}',
+    '\\neq': '\\mathrel{≠}',
+    '\\nequal': '\\mathrel{≠}',
+    '\\not=': '\\mathrel{≠}',
     '\\degree': '^\\circ',
     '\\deg': '^\\circ',
     '\\le': '\\leq',

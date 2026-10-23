@@ -190,9 +190,22 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
     }
     .a4-sheet .katex {
       font-size: 1.05em !important;
-      line-height: 1.2 !important;
+      line-height: inherit !important;
       text-indent: 0 !important;
-      white-space: nowrap !important;
+      text-rendering: optimizeLegibility !important;
+    }
+    .a4-sheet .katex-display {
+      display: block !important;
+      margin: 0.75em 0 !important;
+      padding: 0.25em 0 !important;
+      text-align: center !important;
+      font-size: 1.15em !important;
+      line-height: 1.4 !important;
+      overflow-x: auto !important;
+      overflow-y: hidden !important;
+    }
+    .a4-sheet .katex-display > .katex {
+      white-space: normal !important;
     }
     .a4-sheet .katex .katex-html {
       overflow-x: auto !important;
@@ -204,11 +217,22 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
     .a4-sheet .katex .mclose {
       font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, KaTeX_Math, sans-serif !important;
     }
+    .a4-sheet .katex .mfrac .vlist-t .vlist-r .vlist > span {
+      font-size: 0.92em;
+    }
     .a4-sheet .katex .frac-line {
       border-bottom-width: 1.2px !important;
     }
     .a4-sheet .katex .sqrt > .sqrt-line {
       border-bottom-width: 1.2px !important;
+    }
+    .a4-sheet .katex .mrel {
+      margin-left: 0.22em !important;
+      margin-right: 0.22em !important;
+    }
+    .a4-sheet .katex .mbin {
+      margin-left: 0.18em !important;
+      margin-right: 0.18em !important;
     }
     
     .a4-sheet {
@@ -315,6 +339,23 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
     p, h1, h2, h3, h4, h5, h6, li, blockquote, .panel, .callout, div, span, table, td, th {
       outline: none !important;
       outline-offset: 0 !important;
+    }
+    .katex {
+      font-size: 1.04em !important;
+      line-height: inherit !important;
+      color: #000000 !important;
+    }
+    .katex-display {
+      font-size: 1.12em !important;
+      margin: 0.6em 0 !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    .katex-display > .katex {
+      white-space: normal !important;
+    }
+    .katex .mfrac .vlist-t .vlist-r .vlist > span {
+      font-size: 0.92em;
     }
     .a4-sheet {
       position: relative !important;
