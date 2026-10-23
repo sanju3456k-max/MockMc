@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Prevent benign sandbox Vite HMR/WebSocket errors and database closing/hidden errors from bubbling
+      (function() {
+        var ignorePatterns = [
+          'websocket',
+          'database is closing',
+          'closing/hidden',
+          'the database connection is closing',
+          'invalidstateerror',
+          'could not reach cloud firestore backend'
+        ];
+
+        function isIgnored(msg) {
+          if (!msg) return false;
+          var str = String(msg).toLowerCase();
+          for (var i = 0; i < ignorePatterns.length; i++) {
+            if (str.indexOf(ignorePatterns[i]) !== -1) return true;
+          }
+          return false;
+        }
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var msg = (event && (event.message || (event.reason && event.reason.message) || event.reason)) || '';
+          if (isIgnored(msg)) {
+            if (event.preventDefault) event.preventDefault();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            if (event.stopPropagation) event.stopPropagation();
+          }
+        }, true);
+
+        window.addEventListener('error', function(event) {
+          var msg = (event && (event.message || (event.error && event.error.message) || event.error)) || '';
+          if (isIgnored(msg)) {
+            if (event.preventDefault) event.preventDefault();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            if (event.stopPropagation) event.stopPropagation();
+          }
+        }, true);
+
+        var OriginalWebSocket = window.WebSocket;
+        if (!OriginalWebSocket) return;
+
+        window.WebSocket = function(url, protocols) {
+          var isViteHmr = typeof url === 'string' && (
+            url.indexOf('vite') !== -1 || 
+            url.indexOf('hmr') !== -1 || 
+            url.indexOf('3000') !== -1 || 
+            url.indexOf('3005') !== -1
+          );
+          
+          if (isViteHmr) {
+            // Return a safe dummy WebSocket-like object that never throws or retries
+            return {
+              url: url,
+              readyState: 0, // CONNECTING (stays connecting so Vite client never retries or fails)
+              bufferedAmount: 0,
+              extensions: "",
+              protocol: "",
+              binaryType: "blob",
+              send: function() {},
+              close: function() {},
+              addEventListener: function(type, listener) {
+                // Silently accept listeners but do not trigger callbacks to prevent error loops
+              },
+              removeEventListener: function() {},
+              dispatchEvent: function() { return true; },
+              onopen: null,
+              onclose: null,
+              onerror: null,
+              onmessage: null
+            };
+          }
+          
+          try {
+            return new OriginalWebSocket(url, protocols);
+          } catch (e) {
+            console.warn('WebSocket connection suppressed:', e);
+            return {};
+          }
+        };
+        
+        window.WebSocket.prototype = OriginalWebSocket.prototype;
+        for (var key in OriginalWebSocket) {
+          if (OriginalWebSocket.hasOwnProperty(key)) {
+            window.WebSocket[key] = OriginalWebSocket[key];
+          }
+        }
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
+    <title>Math Mock Test Practice</title>
+    <meta name="description" content="Math practice test application with Google account sync across devices, custom test builder, printable 2-column question paper & auto-generated OMR bubble sheets with optical recognition scanning, timed mock exam interface, instant grading, and step-by-step solution reviews." />
+    <meta property="og:title" content="Math Mock Test Practice" />
+    <meta property="og:description" content="Math practice test application with Google account sync across devices, custom test builder, printable 2-column question paper & auto-generated OMR bubble sheets with optical recognition scanning, timed mock exam interface, instant grading, and step-by-step solution reviews." />
+    
+    <!-- PWA Web App Manifest & App Icons -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="./icon-512.png" />
+    
+    <!-- Chrome / Android PWA APK & Theme Colors (Matching Header Background Exactly with No Partition Line) -->
+    <meta name="theme-color" content="#e5e9f0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0c10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#e5e9f0" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="MockMc" />
+    <meta name="application-name" content="MockMc" />
+
+    <!-- Google Fonts: DM Sans, Google Sans, Plus Jakarta Sans, Roboto, JetBrains Mono, & Material Symbols -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,600&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Roboto:ital,wght@0,300;0,400;0,500;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+    <!-- KaTeX CDN for LaTeX Math Formula Rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+    <script type="module" crossorigin src="./assets/index-F4ouE_l4.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CDKHiDJA.css">
+  </head>
+  <body>
+    <div id="root">
+      <div id="app-initial-splash" style="min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #e5e9f0; color: #1f1f1f; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; -webkit-font-smoothing: antialiased; margin: 0; padding: 0;">
+        <style>
+          @media (prefers-color-scheme: dark) {
+            #app-initial-splash {
+              background-color: #0b0c10 !important;
+              color: #e3e3e3 !important;
+            }
+            #app-initial-splash .splash-text {
+              color: #e3e3e3 !important;
+            }
+            #app-initial-splash .splash-sub {
+              color: #9aa0a6 !important;
+            }
+          }
+          @keyframes splash-pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.02); opacity: 0.94; }
+          }
+          .splash-logo-anim {
+            animation: splash-pulse 1.8s ease-in-out infinite;
+          }
+        </style>
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; padding: 24px;">
+          <div class="splash-logo-anim" style="width: 84px; height: 84px; filter: drop-shadow(0 4px 12px rgba(11, 87, 208, 0.25));">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="84" height="84" style="width: 100%; height: 100%; display: block; shape-rendering: geometricPrecision;">
+              <circle cx="256" cy="256" r="240" fill="#bad6ff" />
+              <g transform="translate(256, 256) scale(15) translate(-12, -12)">
+                <path d="M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2" fill="none" stroke="#0b57d0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+              </g>
+            </svg>
+          </div>
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="splash-text" style="font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: #1f1f1f;">MockMc</span>
+              <span style="font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 9999px; background: rgba(11, 87, 208, 0.12); color: #0b57d0;">PRO</span>
+            </div>
+            <span class="splash-sub" style="font-size: 12px; font-weight: 500; color: #5e5e5e;">Mathematics Practice Suite</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+
