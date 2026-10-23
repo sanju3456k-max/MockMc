@@ -1,0 +1,204 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile information and aggregate practice statistics",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLoginAt": { "type": "string", "format": "date-time" },
+        "totalTestsCreated": { "type": "number" },
+        "totalTestsAttempted": { "type": "number" },
+        "totalQuestionsSolved": { "type": "number" },
+        "averageScore": { "type": "number" },
+        "deletedTestIds": { "type": "array" },
+        "statsRollup": { "type": "object" },
+        "testHistories": { "type": "object" },
+        "cat_tests": { "type": "object" },
+        "cat_attempts": { "type": "object" },
+        "cat_study": { "type": "object" },
+        "cat_preferences": { "type": "object" },
+        "_bus_meta": { "type": "object" }
+      },
+      "required": ["id", "email"]
+    },
+    "UserCustomNote": {
+      "title": "UserCustomNote",
+      "description": "User personal note, trick, observation, or attached study document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "testId": { "type": "string", "maxLength": 128 },
+        "attemptId": { "type": "string", "maxLength": 128 },
+        "questionNumber": { "type": "number" },
+        "content": { "type": "string" },
+        "tag": { "type": "string", "maxLength": 32 },
+        "fileUrl": { "type": "string" },
+        "fileName": { "type": "string", "maxLength": 256 },
+        "fileType": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "testId", "content", "createdAt"]
+    },
+    "MathTest": {
+      "title": "MathTest",
+      "description": "Math mock test containing questions, options, time limits, and explanations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "topic": { "type": "string", "maxLength": 64 },
+        "difficulty": { "type": "string", "maxLength": 32 },
+        "timeLimitMinutes": { "type": "number" },
+        "passingScorePercentage": { "type": "number" },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 128 },
+        "isPublic": { "type": "boolean" },
+        "questionCount": { "type": "number" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "topic", "difficulty", "timeLimitMinutes", "authorId", "questions"]
+    },
+    "TestAttempt": {
+      "title": "TestAttempt",
+      "description": "User test submission record with answers, scores, timing, and review data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "testId": { "type": "string", "maxLength": 128 },
+        "testTitle": { "type": "string", "maxLength": 200 },
+        "testTopic": { "type": "string", "maxLength": 64 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 256 },
+        "userName": { "type": "string", "maxLength": 128 },
+        "score": { "type": "number" },
+        "totalPoints": { "type": "number" },
+        "percentage": { "type": "number" },
+        "passed": { "type": "boolean" },
+        "timeSpentSeconds": { "type": "number" },
+        "answers": { "type": "array" },
+        "completedAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "testId", "userId", "score", "totalPoints", "percentage", "passed", "timeSpentSeconds", "answers"]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "User Gemini Assistant chat conversation session containing messages, attachments, and actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "messages": { "type": "array" },
+        "attachments": { "type": "array" },
+        "cloudSyncEnabled": { "type": "boolean" },
+        "selectedTestId": { "type": "string" },
+        "modelTier": { "type": "string" }
+      },
+      "required": ["id", "title", "createdAt", "updatedAt", "messages"]
+    },
+    "QuestionBookmark": {
+      "title": "QuestionBookmark",
+      "description": "Saved question flagged for revision across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "testId": { "type": "string", "maxLength": 128 },
+        "testTitle": { "type": "string", "maxLength": 200 },
+        "question": { "type": "object" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "testId", "question"]
+    },
+    "ChatArchive": {
+      "title": "ChatArchive",
+      "description": "Compressed snapshot archive of user chat history sessions with zero active listeners",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "sessions": { "type": "array" },
+        "totalSessions": { "type": "number" },
+        "updatedAt": { "type": "string" },
+        "clientVersion": { "type": "string" }
+      },
+      "required": ["userId", "sessions", "updatedAt"]
+    },
+    "NotesManifest": {
+      "title": "NotesManifest",
+      "description": "Unified compact manifest of HTML notes projects and revision notes with Drive metadata",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 256 },
+        "updatedAt": { "type": "number" },
+        "htmlNotes": { "type": "object" },
+        "simpleNotes": { "type": "object" }
+      },
+      "required": ["userId", "updatedAt"]
+    },
+    "HtmlNotesProject": {
+      "title": "HtmlNotesProject",
+      "description": "Full HTML Notes Studio project document containing notes and HTML content stored directly in Firebase Firestore",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "files": { "type": "array" }
+      },
+      "required": ["id", "name", "createdAt", "updatedAt", "files"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Stores user account details and statistics"
+    },
+    "/users/{userId}/htmlNotesProjects/{projectId}": {
+      "schema": "HtmlNotesProject",
+      "description": "Stores HTML Notes Studio project documents with HTML code content synced in real time across devices"
+    },
+    "/chat_archives/{userId}": {
+      "schema": "ChatArchive",
+      "description": "Stores single-document compressed archive of user chat histories with zero continuous listeners"
+    },
+    "/notes_manifests/{userId}": {
+      "schema": "NotesManifest",
+      "description": "Stores single-document authoritative manifest of user HTML notes and revision notes"
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": "UserCustomNote",
+      "description": "Stores user personal notes, speed tricks, and attached study documents synced across devices"
+    },
+    "/users/{userId}/chat_sessions/{sessionId}": {
+      "schema": "ChatSession",
+      "description": "Stores user chat history sessions with Gemini Assistant synced across devices"
+    },
+    "/users/{userId}/bookmarks/{bookmarkId}": {
+      "schema": "QuestionBookmark",
+      "description": "Stores saved/flagged questions for user revision synced across devices"
+    },
+    "/tests/{testId}": {
+      "schema": "MathTest",
+      "description": "Stores user-created and imported math mock tests"
+    },
+    "/attempts/{attemptId}": {
+      "schema": "TestAttempt",
+      "description": "Stores test attempts and grading results per user"
+    }
+  }
+}

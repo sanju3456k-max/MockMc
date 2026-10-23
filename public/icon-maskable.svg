@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Full edge-to-edge #bad6ff canvas for maskable background -->
+  <rect width="512" height="512" fill="#bad6ff" />
+
+  <!-- Centered mathematical Sigma symbol inside the 80% safe zone -->
+  <g transform="translate(256, 256) scale(13.5) translate(-12, -12)">
+    <path 
+      d="M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2" 
+      fill="none" 
+      stroke="#0b57d0" 
+      stroke-width="2.6" 
+      stroke-linecap="round" 
+      stroke-linejoin="round" 
+    />
+  </g>
+</svg>

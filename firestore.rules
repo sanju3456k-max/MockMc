@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Health/connection check
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // User profile documents and all subcollections (notes, sessions, settings, htmlNotesStudio, etc.)
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /{allSubcollections=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Chat Archives: Dedicated single-document compressed archive per user
+    match /chat_archives/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Notes Manifests: Single-document authoritative manifest per user
+    match /notes_manifests/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Math Tests: Publicly readable for all students; create/update/delete for authenticated users
+    match /tests/{testId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (
+        resource.data.authorId == request.auth.uid ||
+        resource.data.authorEmail == request.auth.token.email ||
+        !('authorId' in resource.data) ||
+        resource.data.authorId == 'anonymous' ||
+        resource.data.authorId == 'guest-user' ||
+        request.resource.data.authorId == request.auth.uid
+      );
+    }
+
+    // Test Attempts: Authenticated users can create, read, and list attempts
+    match /attempts/{attemptId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.userEmail == request.auth.token.email ||
+        !('userId' in resource.data) ||
+        resource.data.userId == 'anonymous' ||
+        resource.data.userId == 'guest-user' ||
+        request.resource.data.userId == request.auth.uid
+      );
+    }
+  }
+}

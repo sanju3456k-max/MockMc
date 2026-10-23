@@ -1,0 +1,15 @@
+node_modules/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+bun.lock
+bun.lockb
+dist/
+build/
+.antigravity/
+.aistudio/
+scratch/
+scratch_test.mjs
+test_canvas.mjs
