@@ -212,16 +212,37 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
       overflow-x: auto !important;
       overflow-y: hidden !important;
     }
-    .a4-sheet .katex .delimsizing,
-    .a4-sheet .katex .delimsizing *,
-    .a4-sheet .katex .mopen,
-    .a4-sheet .katex .mclose {
-      font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, KaTeX_Math, sans-serif !important;
+    /* Matrix and Delimiter Font Hierarchy: Strictly preserve KaTeX sized delimiter fonts */
+    .a4-sheet .katex .delimsizing.size1,
+    .a4-sheet .katex .delimsizing.size1 * {
+      font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important;
+    }
+    .a4-sheet .katex .delimsizing.size2,
+    .a4-sheet .katex .delimsizing.size2 * {
+      font-family: KaTeX_Size2, KaTeX_Main, sans-serif !important;
+    }
+    .a4-sheet .katex .delimsizing.size3,
+    .a4-sheet .katex .delimsizing.size3 * {
+      font-family: KaTeX_Size3, KaTeX_Main, sans-serif !important;
+    }
+    .a4-sheet .katex .delimsizing.size4,
+    .a4-sheet .katex .delimsizing.size4 * {
+      font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important;
+    }
+    .a4-sheet .katex .delimsizing.mult .delim-size1 > span {
+      font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important;
+    }
+    .a4-sheet .katex .delimsizing.mult .delim-size4 > span {
+      font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important;
+    }
+    .a4-sheet .katex .mopen:not(.delimsizing),
+    .a4-sheet .katex .mclose:not(.delimsizing) {
+      font-family: KaTeX_Main, 'Inter', sans-serif !important;
+    }
+    .a4-sheet .katex .delimsizing {
+      font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, sans-serif;
     }
     .a4-sheet .katex .mfrac .vlist-t .vlist-r .vlist > span {
-      font-size: 1em !important;
-    }
-    .a4-sheet .katex .sizing {
       font-size: 1em !important;
     }
     .a4-sheet .katex .mop.op-limits > .vlist-t {
@@ -361,10 +382,33 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
     .katex-display > .katex {
       white-space: normal !important;
     }
-    .katex .mfrac .vlist-t .vlist-r .vlist > span {
-      font-size: 1em !important;
+    .katex .delimsizing.size1,
+    .katex .delimsizing.size1 * {
+      font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important;
     }
-    .katex .sizing {
+    .katex .delimsizing.size2,
+    .katex .delimsizing.size2 * {
+      font-family: KaTeX_Size2, KaTeX_Main, sans-serif !important;
+    }
+    .katex .delimsizing.size3,
+    .katex .delimsizing.size3 * {
+      font-family: KaTeX_Size3, KaTeX_Main, sans-serif !important;
+    }
+    .katex .delimsizing.size4,
+    .katex .delimsizing.size4 * {
+      font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important;
+    }
+    .katex .delimsizing.mult .delim-size1 > span {
+      font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important;
+    }
+    .katex .delimsizing.mult .delim-size4 > span {
+      font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important;
+    }
+    .katex .mopen:not(.delimsizing),
+    .katex .mclose:not(.delimsizing) {
+      font-family: KaTeX_Main, 'Inter', sans-serif !important;
+    }
+    .katex .mfrac .vlist-t .vlist-r .vlist > span {
       font-size: 1em !important;
     }
     .katex .mop.op-limits > .vlist-t {
@@ -551,10 +595,37 @@ export function getFluidPrintSpecStyles(options: FluidStylesOptions): string {
     text-indent: 0 !important;
     white-space: nowrap !important;
   }
-  .katex .mfrac .vlist-t .vlist-r .vlist > span {
-    font-size: 1em !important;
+    /* Matrix and Delimiter Font Hierarchy: Strictly preserve KaTeX sized delimiter fonts */
+  .katex .delimsizing.size1,
+  .katex .delimsizing.size1 * {
+    font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important;
   }
-  .katex .sizing {
+  .katex .delimsizing.size2,
+  .katex .delimsizing.size2 * {
+    font-family: KaTeX_Size2, KaTeX_Main, sans-serif !important;
+  }
+  .katex .delimsizing.size3,
+  .katex .delimsizing.size3 * {
+    font-family: KaTeX_Size3, KaTeX_Main, sans-serif !important;
+  }
+  .katex .delimsizing.size4,
+  .katex .delimsizing.size4 * {
+    font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important;
+  }
+  .katex .delimsizing.mult .delim-size1 > span {
+    font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important;
+  }
+  .katex .delimsizing.mult .delim-size4 > span {
+    font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important;
+  }
+  .katex .mopen:not(.delimsizing),
+  .katex .mclose:not(.delimsizing) {
+    font-family: KaTeX_Main, 'Inter', sans-serif !important;
+  }
+  .katex .delimsizing {
+    font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, sans-serif;
+  }
+  .katex .mfrac .vlist-t .vlist-r .vlist > span {
     font-size: 1em !important;
   }
   .katex .mop.op-limits > .vlist-t {
@@ -563,12 +634,6 @@ export function getFluidPrintSpecStyles(options: FluidStylesOptions): string {
   .katex .katex-html {
     overflow-x: auto !important;
     overflow-y: hidden !important;
-  }
-  .katex .delimsizing,
-  .katex .delimsizing *,
-  .katex .mopen,
-  .katex .mclose {
-    font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, KaTeX_Math, sans-serif !important;
   }
   .katex .frac-line {
     border-bottom-width: 1.2px !important;

@@ -49,19 +49,71 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function autoScaleTallDelimiters(str: string, openChar: string, closeChar: string, leftCmd: string, rightCmd: string): string {
+  let res = '';
+  let i = 0;
+  while (i < str.length) {
+    if (str[i] === openChar) {
+      const prefix = str.slice(Math.max(0, i - 6), i);
+      if (/\\(left|right)$/.test(prefix) || /\\$/.test(prefix)) {
+        res += str[i];
+        i++;
+        continue;
+      }
+
+      let depth = 1;
+      let j = i + 1;
+      let hasTall = false;
+      while (j < str.length && depth > 0) {
+        if (str[j] === '\\') {
+          const rem = str.slice(j);
+          if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array)\b/.test(rem)) {
+            hasTall = true;
+          }
+          j += 2;
+          continue;
+        }
+        if (str[j] === openChar) depth++;
+        else if (str[j] === closeChar) depth--;
+        j++;
+      }
+
+      if (depth === 0 && hasTall) {
+        const inside = str.slice(i + 1, j - 1);
+        res += leftCmd + autoScaleTallDelimiters(inside, openChar, closeChar, leftCmd, rightCmd) + rightCmd;
+        i = j;
+        continue;
+      }
+    }
+    res += str[i];
+    i++;
+  }
+  return res;
+}
+
 /**
  * Pre-processes LaTeX math string:
  * - Fixes forward slash command typos (/frac -> \frac, /lim -> \lim)
+ * - Auto-promotes brackets around fractions & matrices to full-height \left / \right delimiters
  * - Auto-injects \displaystyle for fractions, limits, integrals, and sums if not explicitly styled
  */
 export function normalizeLatexMath(rawMath: string, isDisplay: boolean): string {
   let s = (rawMath || '').trim();
   if (!s) return '';
 
-  // Fix forward slash command typos (common user typing errors)
+  // 1. Fix forward slash command typos (common user typing errors)
   s = s.replace(/\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\b/g, '\\$1');
 
-  // Inject \displaystyle for inline equations that contain tall operators (fractions, sums, integrals, limits)
+  // 2. Promote [ \begin{matrix} ... \end{matrix} ] to \begin{bmatrix} ... \end{bmatrix}
+  s = s.replace(/(?:^|[^\\])\[\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\]/g, '\\begin{bmatrix}$1\\end{bmatrix}');
+  s = s.replace(/(?:^|[^\\])\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\)/g, '\\begin{pmatrix}$1\\end{pmatrix}');
+  s = s.replace(/(?:^|[^\\])\|\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\|/g, '\\begin{vmatrix}$1\\end{vmatrix}');
+
+  // 3. Promote balanced ( ... \frac ... ) and [ ... \frac ... ] to full-height delimiters
+  s = autoScaleTallDelimiters(s, '(', ')', '\\left(', '\\right)');
+  s = autoScaleTallDelimiters(s, '[', ']', '\\left[', '\\right]');
+
+  // 4. Inject \displaystyle for inline equations that contain tall operators (fractions, sums, integrals, limits)
   if (!isDisplay && !s.startsWith('\\displaystyle') && !s.startsWith('\\textstyle')) {
     if (/\\(?:frac|dfrac|cfrac|int|iint|iiint|oint|sum|prod|lim|matrix|bmatrix|pmatrix|vmatrix|cases)\b/.test(s)) {
       s = `\\displaystyle ${s}`;

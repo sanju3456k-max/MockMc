@@ -244,8 +244,42 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
             preProcess: function(math) {
               var s = math ? math.trim() : '';
               if (!s) return '';
-              // Normalize forward-slash command typos (e.g. /frac -> \frac, /lim -> \lim)
-              return s.replace(/\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\b/g, '\\$1');
+              s = s.replace(/\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\b/g, '\\$1');
+              s = s.replace(/(?:^|[^\\])\[\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\]/g, '\\begin{bmatrix}$1\\end{bmatrix}');
+              s = s.replace(/(?:^|[^\\])\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\)/g, '\\begin{pmatrix}$1\\end{pmatrix}');
+              s = s.replace(/(?:^|[^\\])\|\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\|/g, '\\begin{vmatrix}$1\\end{vmatrix}');
+              function scalePairs(str, o, c, l, r) {
+                var out = '', idx = 0;
+                while (idx < str.length) {
+                  if (str[idx] === o) {
+                    var pfx = str.slice(Math.max(0, idx - 6), idx);
+                    if (/\\(left|right)$/.test(pfx) || /\\$/.test(pfx)) { out += str[idx]; idx++; continue; }
+                    var d = 1, j = idx + 1, tall = false;
+                    while (j < str.length && d > 0) {
+                      if (str[j] === '\\') {
+                        var rem = str.slice(j);
+                        if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array)\b/.test(rem)) tall = true;
+                        j += 2; continue;
+                      }
+                      if (str[j] === o) d++;
+                      else if (str[j] === c) d--;
+                      j++;
+                    }
+                    if (d === 0 && tall) {
+                      var inside = str.slice(idx + 1, j - 1);
+                      out += l + scalePairs(inside, o, c, l, r) + r;
+                      idx = j;
+                      continue;
+                    }
+                  }
+                  out += str[idx];
+                  idx++;
+                }
+                return out;
+              }
+              s = scalePairs(s, '(', ')', '\\left(', '\\right)');
+              s = scalePairs(s, '[', ']', '\\left[', '\\right]');
+              return s;
             },
             delimiters: [
               { left: '$$', right: '$$', display: true },

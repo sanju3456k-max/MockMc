@@ -242,14 +242,10 @@
 .katex .mbin,
 .katex .mord:not(.mathnormal),
 .katex .minner,
-.katex .delimsizing,
-.katex .delimsizing *,
 .katex .sqrt-sign,
 .katex .sqrt > .sqrt-sign,
 .katex .stretchy,
 .katex .stretchy *,
-.katex .mopen.delimcenter,
-.katex .mclose.delimcenter,
 .katex .large-op,
 .katex .op-symbol {
   font-family: KaTeX_Main, KaTeX_Math, KaTeX_AMS, KaTeX_Symbols, KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, 'Inter', sans-serif !important;
@@ -589,11 +585,18 @@
 }
 
 /* Guarantee KaTeX matrix brackets and delimiters preserve KaTeX webfont family */
-.katex .delimsizing,
-.katex .delimsizing *,
-.katex .mopen,
-.katex .mclose {
-  font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, KaTeX_Math, sans-serif !important;
+.katex .mopen:not(.delimsizing),
+.katex .mclose:not(.delimsizing) {
+  font-family: KaTeX_Main, 'Inter', sans-serif !important;
+}
+.katex .delimsizing {
+  font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, sans-serif;
+}
+.katex .delimsizing.mult .delim-size1 > span {
+  font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important;
+}
+.katex .delimsizing.mult .delim-size4 > span {
+  font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important;
 }
 
 /* Rely on KaTeX's beautiful native math fonts for math variables, symbols and digits to render correctly */

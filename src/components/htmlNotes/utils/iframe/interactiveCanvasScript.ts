@@ -87,10 +87,15 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     user-select: all !important;
     cursor: default !important;
   }
+  .katex .delimsizing.size1, .katex .delimsizing.size1 * { font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.size2, .katex .delimsizing.size2 * { font-family: KaTeX_Size2, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.size3, .katex .delimsizing.size3 * { font-family: KaTeX_Size3, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.size4, .katex .delimsizing.size4 * { font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.mult .delim-size1 > span { font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.mult .delim-size4 > span { font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important; }
+  .katex .mopen:not(.delimsizing), .katex .mclose:not(.delimsizing) { font-family: KaTeX_Main, 'Inter', sans-serif !important; }
+  .katex .delimsizing { font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, sans-serif; }
   .katex .mfrac .vlist-t .vlist-r .vlist > span {
-    font-size: 1em !important;
-  }
-  .katex .sizing {
     font-size: 1em !important;
   }
   .katex .mop.op-limits > .vlist-t {
@@ -346,6 +351,49 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     return typeof fn === 'function' ? fn : null;
   }
 
+  function normalizeMathFormula(math) {
+    var s = math ? math.trim() : '';
+    if (!s) return '';
+    s = s.replace(/\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\b/g, '\\$1');
+    s = s.replace(/(?:^|[^\\])\[\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\]/g, '\\begin{bmatrix}$1\\end{bmatrix}');
+    s = s.replace(/(?:^|[^\\])\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\)/g, '\\begin{pmatrix}$1\\end{pmatrix}');
+    s = s.replace(/(?:^|[^\\])\|\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\|/g, '\\begin{vmatrix}$1\\end{vmatrix}');
+
+    function scalePairs(str, o, c, l, r) {
+      var out = '', idx = 0;
+      while (idx < str.length) {
+        if (str[idx] === o) {
+          var pfx = str.slice(Math.max(0, idx - 6), idx);
+          if (/\\(left|right)$/.test(pfx) || /\\$/.test(pfx)) { out += str[idx]; idx++; continue; }
+          var d = 1, j = idx + 1, tall = false;
+          while (j < str.length && d > 0) {
+            if (str[j] === '\\') {
+              var rem = str.slice(j);
+              if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array)\b/.test(rem)) tall = true;
+              j += 2; continue;
+            }
+            if (str[j] === o) d++;
+            else if (str[j] === c) d--;
+            j++;
+          }
+          if (d === 0 && tall) {
+            var inside = str.slice(idx + 1, j - 1);
+            out += l + scalePairs(inside, o, c, l, r) + r;
+            idx = j;
+            continue;
+          }
+        }
+        out += str[idx];
+        idx++;
+      }
+      return out;
+    }
+
+    s = scalePairs(s, '(', ')', '\\left(', '\\right)');
+    s = scalePairs(s, '[', ']', '\\left[', '\\right]');
+    return s;
+  }
+
   function directRenderMathInTree(root) {
     var k = resolveKaTeX();
     if (!k || typeof k.renderToString !== 'function' || !root) return;
@@ -387,8 +435,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
           frag.appendChild(document.createTextNode(text.substring(lastIdx, start)));
         }
         var isDisplay = Boolean(match[1]);
-        var math = (match[1] || match[2] || '').trim();
-        math = math.replace(/\\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\\b/g, '\\\\$1');
+        var math = normalizeMathFormula(match[1] || match[2] || '');
 
         try {
           var rendered = k.renderToString(math, {
@@ -425,10 +472,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
       try {
         fn(document.body, {
           preProcess: function(math) {
-            var s = math ? math.trim() : '';
-            if (!s) return '';
-            // Normalize forward-slash command typos (e.g. /frac -> \frac, /lim -> \lim)
-            return s.replace(/\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\b/g, '\\$1');
+            return normalizeMathFormula(math);
           },
           delimiters: [
             {left: '$$', right: '$$', display: true},
