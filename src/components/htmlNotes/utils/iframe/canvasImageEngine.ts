@@ -507,28 +507,12 @@ export function getCanvasImageEngineScript(isPreviewEditMode: boolean = false): 
     return ind;
   }
 
-  // 4. HTML Sync Notifier with clean serialization
-  var updateDebounceTimer = null;
+  // 4. HTML Sync Notifier: marks preview dirty locally in-memory
   function triggerHtmlSync(immediate) {
     if (!window.__isEditModeActive) return;
-    if (updateDebounceTimer) clearTimeout(updateDebounceTimer);
-    var doSync = function() {
-      try {
-        if (!window.__isEditModeActive) return;
-        if (typeof window.getCleanHtml === 'function') {
-          var cleanHtml = window.getCleanHtml();
-          window.parent.postMessage({
-            type: 'STUDIO_HTML_UPDATE',
-            html: cleanHtml
-          }, '*');
-        }
-      } catch(e) {}
-    };
-
-    if (immediate) {
-      doSync();
-    } else {
-      updateDebounceTimer = setTimeout(doSync, 100);
+    window.__isUserPreviewDirty = true;
+    if (immediate && typeof window.notifyParentOfHtmlChange === 'function') {
+      window.notifyParentOfHtmlChange(true);
     }
   }
 

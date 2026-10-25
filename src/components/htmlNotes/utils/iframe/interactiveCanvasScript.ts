@@ -30,6 +30,45 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
   }
 
   /* Visual Edit Mode Editable Affordance */
+  body.studio-preview-editable,
+  body.studio-preview-editable .a4-container,
+  body.studio-preview-editable .a4-sheet,
+  body.studio-preview-editable p,
+  body.studio-preview-editable h1,
+  body.studio-preview-editable h2,
+  body.studio-preview-editable h3,
+  body.studio-preview-editable h4,
+  body.studio-preview-editable h5,
+  body.studio-preview-editable h6,
+  body.studio-preview-editable li,
+  body.studio-preview-editable blockquote,
+  body.studio-preview-editable .panel,
+  body.studio-preview-editable .callout,
+  body.studio-preview-editable td,
+  body.studio-preview-editable th,
+  body.studio-preview-editable [contenteditable="true"] {
+    -webkit-user-modify: read-write !important;
+    user-modify: read-write !important;
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    cursor: text !important;
+    pointer-events: auto !important;
+  }
+
+  body.studio-preview-editable .katex,
+  body.studio-preview-editable .katex-display,
+  body.studio-preview-editable .katex-html,
+  body.studio-preview-editable .doc-img-wrapper,
+  body.studio-preview-editable .doc-img-toolbar,
+  body.studio-preview-editable .doc-resize-handle,
+  body.studio-preview-editable #studio-slide-element-toolbar,
+  body.studio-preview-editable .studio-page-break-indicator-line,
+  body.studio-preview-editable .studio-page-break-indicator-label,
+  body.studio-preview-editable .slide-card-header-badge {
+    -webkit-user-modify: read-only !important;
+    user-modify: read-only !important;
+  }
+
   .studio-preview-editable p:hover,
   .studio-preview-editable h1:hover,
   .studio-preview-editable h2:hover,
@@ -203,6 +242,24 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
         document.body.contentEditable = 'true';
         document.body.setAttribute('contenteditable', 'true');
       }
+
+      // Explicitly enable editing on all child text containers and clear any lingering contenteditable="false"
+      var textBlocks = document.querySelectorAll(
+        '.a4-sheet p, .a4-sheet h1, .a4-sheet h2, .a4-sheet h3, .a4-sheet h4, .a4-sheet h5, .a4-sheet h6, ' +
+        '.a4-sheet li, .a4-sheet blockquote, .a4-sheet .panel, .a4-sheet .callout, .a4-sheet td, .a4-sheet th, ' +
+        '.a4-container p, .a4-container h1, .a4-container h2, .a4-container h3, .a4-container h4, .a4-container h5, .a4-container h6, ' +
+        '.a4-container li, .a4-container blockquote, .a4-container .panel, .a4-container td, .a4-container th, ' +
+        'body.studio-preview-editable p, body.studio-preview-editable h1, body.studio-preview-editable h2, ' +
+        'body.studio-preview-editable h3, body.studio-preview-editable h4, body.studio-preview-editable h5, body.studio-preview-editable h6, ' +
+        'body.studio-preview-editable li, body.studio-preview-editable blockquote, body.studio-preview-editable td, body.studio-preview-editable th'
+      );
+      textBlocks.forEach(function(el) {
+        if (!el.closest('.katex') && !el.closest('.doc-img-wrapper') && !el.closest('#studio-slide-element-toolbar') && !el.closest('.studio-page-break-indicator-label')) {
+          el.contentEditable = 'true';
+          el.setAttribute('contenteditable', 'true');
+        }
+      });
+
       setupTableResizing();
     }
 
@@ -228,10 +285,6 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     } else if (e.data.type === 'STUDIO_FLUSH_CHANGES') {
       notifyParentOfHtmlChange(true);
     } else if (e.data.type === 'STUDIO_RESET_DIRTY') {
-      if (notifyDebounceTimer) {
-        clearTimeout(notifyDebounceTimer);
-        notifyDebounceTimer = null;
-      }
       window.__isUserPreviewDirty = false;
     }
   });
@@ -239,11 +292,11 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
   // Track if user has made an active modification inside preview
   window.__isUserPreviewDirty = false;
 
-  // Listen for inline user text changes in visual edit mode with rapid responsive debounce
+  // Local-level editing: Keep DOM modifications purely in-memory while typing!
+  // Read and writes occur ONLY when hitting Save, leaving file tab, or exiting edit mode.
   document.addEventListener('input', function(e) {
     if (!window.__isEditModeActive) return;
     window.__isUserPreviewDirty = true;
-    notifyParentOfHtmlChange(false);
   }, true);
 
   // Instantly flush changes on blur ONLY if the user actually modified content
@@ -903,6 +956,9 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     return tempDiv.innerHTML.trim();
   }
   window.getCleanHtml = getCleanHtml;
+  window.getCleanDocumentHtml = function() {
+    return getCleanHtml(false);
+  };
   window.getCleanHtmlForPrint = function() {
     hideSlideElementToolbar();
     try {
@@ -928,32 +984,20 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     return getCleanHtml(true);
   };
 
-  // 4. Highly responsive HTML change notifier with instant single-digit capture
-  var notifyDebounceTimer = null;
+  // 4. HTML change flush notifier (only emitted when explicitly saving, exiting edit mode, or on blur)
   function notifyParentOfHtmlChange(immediate) {
     if (!window.__isEditModeActive) return;
-    if (notifyDebounceTimer) {
-      clearTimeout(notifyDebounceTimer);
-      notifyDebounceTimer = null;
-    }
-    var emitUpdate = function() {
-      try {
-        if (!window.__isEditModeActive) return;
-        window.__isUserPreviewDirty = false;
-        var cleanHtml = getCleanHtml(false);
-        window.parent.postMessage({
-          type: 'STUDIO_HTML_UPDATE',
-          html: cleanHtml
-        }, '*');
-      } catch(e) {}
-    };
-
-    if (immediate) {
-      emitUpdate();
-    } else {
-      notifyDebounceTimer = setTimeout(emitUpdate, 120);
-    }
+    try {
+      window.__isUserPreviewDirty = false;
+      var cleanHtml = getCleanHtml(false);
+      window.parent.postMessage({
+        type: 'STUDIO_HTML_UPDATE',
+        html: cleanHtml,
+        isFlush: true
+      }, '*');
+    } catch(e) {}
   }
+  window.notifyParentOfHtmlChange = notifyParentOfHtmlChange;
 
   // 5. Image Selection, Free Pointer Dragging, Resizing & Toolbar Engine
   var selectedWrapper = null;
@@ -1924,6 +1968,14 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
       if (!target || target.nodeType !== 1) return;
 
       if (target.closest('#studio-slide-element-toolbar') || target.closest('.doc-img-toolbar') || target.closest('.doc-resize-handle')) {
+        return;
+      }
+
+      // Slide toolbar is strictly for slide deck mode (16:9 presentations).
+      // In normal A4 document notes, users click text directly to place caret and type without a blocking popup!
+      var isSlideDeck = Boolean(document.querySelector('.slide'));
+      if (!isSlideDeck) {
+        hideSlideElementToolbar();
         return;
       }
 

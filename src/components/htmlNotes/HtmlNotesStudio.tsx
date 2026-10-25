@@ -526,38 +526,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
     }, 1000);
   }, [handleRedo, canRedo]);
 
-  // Hotkey listeners (Ctrl+S, Ctrl+Z, Ctrl+Y, Ctrl+F)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        handleSaveCurrentFile();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        if (!e.shiftKey) {
-          e.preventDefault();
-          handleStudioUndo();
-        } else {
-          e.preventDefault();
-          handleStudioRedo();
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        handleStudioRedo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        if (viewMode === 'preview') {
-          setIsPreviewSearchOpen(true);
-          setTimeout(() => previewSearchInputRef.current?.focus(), 100);
-        } else {
-          setIsEditorSearchOpen(true);
-          setTimeout(() => searchInputRef.current?.focus(), 100);
-        }
-      }
-    };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [historyIndex, handleSaveCurrentFile, handleStudioUndo, handleStudioRedo, viewMode, setIsPreviewSearchOpen, setIsEditorSearchOpen, previewSearchInputRef, searchInputRef]);
 
   // Reset live edit mode to OFF whenever active file or project changes
   useEffect(() => {
@@ -687,10 +656,62 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
     isVisualEditActiveRef.current = isVisualEditActive;
   }, [isVisualEditActive]);
 
+  // Synchronously extracts live in-memory HTML from the preview iframe and merges into React state & project file
+  // Called strictly on explicit user Save, file tab switch, project switch, or when finishing Edit Mode
+  const flushPreviewIframeChanges = useCallback(() => {
+    try {
+      const targets = [iframeRef.current, fullScreenIframeRef.current];
+      for (const targetIframe of targets) {
+        if (!targetIframe?.contentWindow) continue;
+        const win = targetIframe.contentWindow as any;
+        const liveClean = typeof win.getCleanDocumentHtml === 'function'
+          ? win.getCleanDocumentHtml()
+          : (typeof win.getCleanHtml === 'function' ? win.getCleanHtml(false) : null);
+        if (liveClean && typeof liveClean === 'string') {
+          const currentCode = codeRef.current || code;
+          const merged = mergeUpdatedBodyIntoFullDocument(currentCode, liveClean);
+          if (merged && merged !== currentCode) {
+            isSelfGeneratedIframeUpdateRef.current = true;
+            updateCodeWithHistory(merged);
+          }
+        }
+        try {
+          win.postMessage({ type: 'STUDIO_RESET_DIRTY' }, '*');
+        } catch (_) {}
+      }
+    } catch (err) {}
+  }, [code, updateCodeWithHistory]);
+
+  const handleSaveCurrentFileWithFlush = useCallback(() => {
+    if (isVisualEditActiveRef.current) {
+      flushPreviewIframeChanges();
+    }
+    handleSaveCurrentFile();
+  }, [flushPreviewIframeChanges, handleSaveCurrentFile]);
+
+  const handleOpenFileWithFlush = useCallback((projectId: string, file: HtmlNoteItem, mode: ViewMode = 'preview') => {
+    if (isVisualEditActiveRef.current) {
+      flushPreviewIframeChanges();
+    }
+    handleOpenFile(projectId, file, mode);
+  }, [flushPreviewIframeChanges, handleOpenFile]);
+
+  const handleOpenProjectWithFlush = useCallback((proj: HtmlProject) => {
+    if (isVisualEditActiveRef.current) {
+      flushPreviewIframeChanges();
+    }
+    handleOpenProject(proj);
+  }, [flushPreviewIframeChanges, handleOpenProject]);
+
   const handleToggleVisualEdit = useCallback(() => {
     setIsVisualEditActive((prev) => {
       const next = !prev;
       isVisualEditActiveRef.current = next;
+
+      // When finishing edit mode, flush in-memory edits to the project file!
+      if (!next) {
+        flushPreviewIframeChanges();
+      }
 
       // Broadcast immediately to both regular preview and full-screen iframes
       const targets = [iframeRef.current, fullScreenIframeRef.current];
@@ -712,7 +733,40 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
 
       return next;
     });
-  }, []);
+  }, [flushPreviewIframeChanges]);
+
+  // Hotkey listeners (Ctrl+S, Ctrl+Z, Ctrl+Y, Ctrl+F)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveCurrentFileWithFlush();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (!e.shiftKey) {
+          e.preventDefault();
+          handleStudioUndo();
+        } else {
+          e.preventDefault();
+          handleStudioRedo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleStudioRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        if (viewMode === 'preview') {
+          setIsPreviewSearchOpen(true);
+          setTimeout(() => previewSearchInputRef.current?.focus(), 100);
+        } else {
+          setIsEditorSearchOpen(true);
+          setTimeout(() => searchInputRef.current?.focus(), 100);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [historyIndex, handleSaveCurrentFileWithFlush, handleStudioUndo, handleStudioRedo, viewMode, setIsPreviewSearchOpen, setIsEditorSearchOpen, previewSearchInputRef, searchInputRef]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -778,7 +832,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         } else if (e.data.type === 'STUDIO_OPEN_FILE' && e.data.fileId) {
           const file = activeProjectFiles.find(f => f.id === e.data.fileId);
           if (file) {
-            handleOpenFile(activeProjectId, file, viewMode);
+            handleOpenFileWithFlush(activeProjectId, file, viewMode);
           }
         }
       }
@@ -1251,8 +1305,8 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
           onDeduplicateDrive={handleDeduplicateDrive}
           activeNote={activeFile}
           showToast={showDriveToast}
-          onOpenProject={handleOpenProject}
-          onOpenFile={(projId, file) => handleOpenFile(projId, file, 'preview')}
+          onOpenProject={handleOpenProjectWithFlush}
+          onOpenFile={(projId, file) => handleOpenFileWithFlush(projId, file, 'preview')}
           onCreateNewProject={handleCreateNewProject}
           onImportClick={() => fileInputRef.current?.click()}
           onAddFileToProject={handleAddFileToProject}
@@ -1274,11 +1328,17 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         <>
           <HtmlNotesHeader
             onBack={() => {
+              if (isVisualEditActiveRef.current) {
+                flushPreviewIframeChanges();
+              }
               checkAndSaveBeforeAction();
               setStudioView('home');
               onViewChange?.('home');
             }}
             onGoHome={() => {
+              if (isVisualEditActiveRef.current) {
+                flushPreviewIframeChanges();
+              }
               checkAndSaveBeforeAction();
               setStudioView('home');
               onViewChange?.('home');
@@ -1287,7 +1347,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
             setViewMode={setViewMode}
             viewportMode={viewportMode}
             setViewportMode={setViewportMode}
-            onSaveCurrentFile={handleSaveCurrentFile}
+            onSaveCurrentFile={handleSaveCurrentFileWithFlush}
             savedSuccess={savedSuccess}
             hasUnsavedChanges={hasUnsavedChanges}
             onToggleMobileMore={() => setIsMobileMoreOpen(true)}
@@ -1321,7 +1381,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
             activeProjectId={activeProject?.id || activeProjectId}
             activeFileId={activeFileId}
             activeProjectFiles={activeProjectFiles}
-            onOpenFile={handleOpenFile}
+            onOpenFile={handleOpenFileWithFlush}
             onAddFile={(projId) => handleAddFileToProject(projId || activeProject?.id || activeProjectId)}
             onDeleteFile={handleDeleteFile}
             renamingFileId={renamingFileId}
@@ -1351,7 +1411,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
               activeFileId={activeFileId}
               activeProjectFiles={activeProjectFiles}
               viewMode={viewMode}
-              onOpenFile={handleOpenFile}
+              onOpenFile={handleOpenFileWithFlush}
               onAddFileToProject={(projId) => handleAddFileToProject(projId || activeProject?.id || activeProjectId)}
               onDeleteFile={handleDeleteFile}
               onOpenVersionHistory={() => setIsVersionModalOpen(true)}
