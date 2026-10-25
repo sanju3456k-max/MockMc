@@ -1878,7 +1878,6 @@ export async function importAllLocalDataFromJson(
 
         const mergedHtmlProjects = Array.from(projMap.values());
         saveLocalProjects(mergedHtmlProjects, userId, true);
-        recordHtmlProjectsUpdate(mergedHtmlProjects, undefined, true);
 
         if (!isGuest) {
           queueFirestoreSync(mergedHtmlProjects, true);

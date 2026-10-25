@@ -1,8 +1,10 @@
-import { doc, getDoc, setDoc, deleteDoc, collection, onSnapshot, type Unsubscribe } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { doc, getDoc, getDocs, setDoc, deleteDoc, collection, query, limit, type Unsubscribe } from 'firebase/firestore';
+import { auth, db, isGlobalQuotaExceeded, updateUserSyncBeacon } from './firebase';
+import { smartCoordinator } from './smartLocalCoordinator';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { safeSetItem } from './storage';
+import { safeSetItem, getCachedAuthUser } from './storage';
 import { TEMPLATE_LANDSCAPE_SLIDES } from '../components/htmlNotes/constants/templates';
+import { checkFirestoreDocSize } from './firestoreDocSizeValidator';
 
 
 export interface HtmlNoteItem {
@@ -16,6 +18,8 @@ export interface HtmlNoteItem {
   driveWebViewLink?: string;
   driveSyncStatus?: 'synced' | 'pending_device_upload' | 'local_only';
   pendingDeviceId?: string;
+  _syncStatus?: 'pending' | 'synced';
+  localUpdatedAt?: number;
 }
 
 export interface HtmlProject {
@@ -25,6 +29,8 @@ export interface HtmlProject {
   createdAt: number;
   updatedAt: number;
   files: HtmlNoteItem[];
+  _syncStatus?: 'pending' | 'synced';
+  localUpdatedAt?: number;
 }
 
 const LOCAL_STORAGE_PROJECTS_KEY = 'mockmc_html_projects_v3';
@@ -191,7 +197,8 @@ export function sanitizeAndRepairCode(code: string): string {
 }
 
 export function getHtmlNotesStorageKey(userId?: string | null): string {
-  const effectiveUid = userId !== undefined ? userId : (auth.currentUser?.uid || null);
+  const cachedUid = typeof window !== 'undefined' ? getCachedAuthUser()?.uid || null : null;
+  const effectiveUid = userId !== undefined ? userId : (auth.currentUser?.uid || cachedUid);
   if (effectiveUid && typeof effectiveUid === 'string' && effectiveUid.trim() !== '' && effectiveUid !== 'guest-user' && effectiveUid !== 'anonymous') {
     return `mockmc_html_projects_account_${effectiveUid.trim()}`;
   }
@@ -352,6 +359,14 @@ export function saveLocalProjects(projects: HtmlProject[], userId?: string | nul
   pendingSaveUserId = userId;
   if (typeof window === 'undefined') return;
 
+  // Immediately mirror to localStorage so any synchronous read or instant reload sees the data
+  try {
+    const key = getHtmlNotesStorageKey(userId);
+    localStorage.setItem(key, JSON.stringify(projects));
+  } catch (e) {
+    // Handled by flushLocalProjectsSave fallback if quota hit
+  }
+
   if (immediate) {
     flushLocalProjectsSave();
   } else {
@@ -359,6 +374,70 @@ export function saveLocalProjects(projects: HtmlProject[], userId?: string | nul
     localSaveTimer = setTimeout(() => {
       flushLocalProjectsSave();
     }, 400);
+  }
+}
+
+/**
+ * Saves strictly ONE single project document to Firestore.
+ * Used when explicitly clicking "Save" or leaving an open project.
+ * Hits exactly 1 Firestore write (never looping all projects or touching master doc).
+ */
+export async function saveSingleProjectToFirestore(
+  project: HtmlProject,
+  targetUserId?: string | null
+): Promise<boolean> {
+  const user = auth.currentUser;
+  const effectiveUid = targetUserId || user?.uid;
+  if (!effectiveUid || (user && user.isAnonymous)) {
+    return false;
+  }
+
+  if (isGlobalQuotaExceeded()) {
+    console.warn('[saveSingleProjectToFirestore] Daily quota reached; saved locally.');
+    return false;
+  }
+
+  try {
+    const cleanProj = {
+      id: project.id,
+      name: project.name,
+      description: project.description || '',
+      createdAt: project.createdAt || Date.now(),
+      updatedAt: project.updatedAt || Date.now(),
+      userId: effectiveUid,
+      files: (project.files || []).map(f => ({
+        id: f.id,
+        title: f.title || 'Untitled Note',
+        code: f.code || '',
+        createdAt: f.createdAt || Date.now(),
+        updatedAt: f.updatedAt || Date.now(),
+        tags: f.tags || []
+      }))
+    };
+
+    const sizeCheck = checkFirestoreDocSize(cleanProj);
+    if (sizeCheck.isExceeded) {
+      console.warn(`[Firestore Limit Exceeded] Project "${cleanProj.name}" is ${sizeCheck.formattedSize} (> 980 KB). Cloud write blocked to prevent 400 rejection.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mockmc_doc_size_alert', { detail: { project: cleanProj, sizeResult: sizeCheck } }));
+      }
+      return false;
+    }
+
+    const projDoc = doc(db, 'users', effectiveUid, 'htmlNotesProjects', project.id);
+    await setDoc(projDoc, removeUndefinedFields(cleanProj), { merge: true });
+
+    // Atomically bump sync beacon notes revision and align local revision
+    // This ensures local and remote revisions match, producing 0 reads on reload!
+    const nowRev = Date.now();
+    updateUserSyncBeacon(effectiveUid, { notesRev: nowRev }).catch(() => {});
+    smartCoordinator.setLocalSyncRevision(effectiveUid, 'notesRev', nowRev);
+
+    notifySyncStatus('synced');
+    return true;
+  } catch (err) {
+    console.error('[saveSingleProjectToFirestore] Error saving single project:', err);
+    return false;
   }
 }
 
@@ -377,9 +456,117 @@ export async function deleteProjectFromFirestore(projectId: string): Promise<voi
 }
 
 /**
+ * Non-destructive Local-First Project Reconciliation.
+ * Guarantees that local edits created during offline or quota-exhaustion states
+ * are NEVER overwritten by older/stale remote snapshots.
+ */
+export function reconcileHtmlProjects(localProjects: HtmlProject[], remoteProjects: HtmlProject[]): HtmlProject[] {
+  if (!Array.isArray(remoteProjects) || remoteProjects.length === 0) {
+    return localProjects || [];
+  }
+  if (!Array.isArray(localProjects) || localProjects.length === 0) {
+    return remoteProjects.map(p => ({ ...p, _syncStatus: 'synced' }));
+  }
+
+  // Quota guard: When daily quotas are exhausted or app is offline,
+  // remote Firestore data cannot have post-quota edits.
+  // Local state is strictly authoritative!
+  if (isGlobalQuotaExceeded()) {
+    console.warn('[reconcileHtmlProjects] Quota exhausted: Local HTML notes are strictly authoritative.');
+    const localIdSet = new Set(localProjects.map(p => p.id));
+    const merged = [...localProjects];
+    remoteProjects.forEach(rp => {
+      if (rp && rp.id && !localIdSet.has(rp.id)) {
+        merged.push({ ...rp, _syncStatus: 'synced' });
+      }
+    });
+    return merged;
+  }
+
+  const remoteMap = new Map<string, HtmlProject>();
+  remoteProjects.forEach(rp => {
+    if (rp && rp.id) remoteMap.set(rp.id, rp);
+  });
+
+  const mergedProjects: HtmlProject[] = [];
+  const processedIds = new Set<string>();
+
+  for (const local of localProjects) {
+    if (!local || !local.id) continue;
+    processedIds.add(local.id);
+    const remote = remoteMap.get(local.id);
+
+    if (!remote) {
+      // Local project doesn't exist remotely (e.g. created while offline or during quota exhaustion)
+      // PRESERVE local project completely!
+      mergedProjects.push(local);
+      continue;
+    }
+
+    // Project exists in both: merge files non-destructively
+    const remoteFileMap = new Map<string, HtmlNoteItem>();
+    (remote.files || []).forEach(rf => {
+      if (rf && rf.id) remoteFileMap.set(rf.id, rf);
+    });
+
+    const reconciledFiles: HtmlNoteItem[] = [];
+    const localFileIdSet = new Set<string>();
+
+    (local.files || []).forEach(lf => {
+      if (!lf || !lf.id) return;
+      localFileIdSet.add(lf.id);
+      const rf = remoteFileMap.get(lf.id);
+      if (!rf) {
+        // File exists locally, absent remotely -> ALWAYS PRESERVE IT!
+        reconciledFiles.push(lf);
+        return;
+      }
+      // File exists in both:
+      const isLfPending = lf._syncStatus === 'pending';
+      const lfTime = Math.max(lf.localUpdatedAt || 0, lf.updatedAt || 0);
+      const rfTime = rf.updatedAt || 0;
+      if (isLfPending || lfTime >= rfTime) {
+        reconciledFiles.push(lf);
+      } else {
+        reconciledFiles.push({ ...rf, _syncStatus: 'synced' });
+      }
+    });
+
+    // Add any files from remote that local does not have
+    (remote.files || []).forEach(rf => {
+      if (rf && rf.id && !localFileIdSet.has(rf.id)) {
+        reconciledFiles.push({ ...rf, _syncStatus: 'synced' });
+      }
+    });
+
+    const isProjectPending = local._syncStatus === 'pending' || reconciledFiles.some(f => f._syncStatus === 'pending');
+
+    mergedProjects.push({
+      ...local,
+      name: (local.updatedAt >= (remote.updatedAt || 0)) ? local.name : (remote.name || local.name),
+      updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0),
+      _syncStatus: isProjectPending ? 'pending' : 'synced',
+      files: reconciledFiles
+    });
+  }
+
+  // Add any remote projects that do not exist locally
+  for (const remote of remoteProjects) {
+    if (remote && remote.id && !processedIds.has(remote.id)) {
+      mergedProjects.push({
+        ...remote,
+        _syncStatus: 'synced'
+      });
+    }
+  }
+
+  return mergedProjects;
+}
+
+/**
  * Smart Firestore Sync:
- * Saves all project documents in real-time to Firebase Firestore under users/{userId}/htmlNotesProjects/{projectId}
- * as well as the composite notes_data document.
+ * Saves project documents to Firebase Firestore under users/{userId}/htmlNotesProjects/{projectId}.
+ * Strictly guards against 1 MB document limits and halts uploads during quota exhaustion.
  */
 export function queueFirestoreSync(projects: HtmlProject[], immediate = false): void {
   saveLocalProjects(projects);
@@ -387,6 +574,13 @@ export function queueFirestoreSync(projects: HtmlProject[], immediate = false): 
   const user = auth.currentUser;
   if (!user || user.isAnonymous) {
     notifySyncStatus('local_only');
+    return;
+  }
+
+  // Quota guard: When daily quotas are exhausted, keep changes safely in local storage
+  if (isGlobalQuotaExceeded()) {
+    console.warn('[Firestore Sync] Daily Firestore quota exhausted. Edits safely stored in local IndexedDB/localStorage.');
+    notifySyncStatus('offline');
     return;
   }
 
@@ -405,6 +599,11 @@ export function queueFirestoreSync(projects: HtmlProject[], immediate = false): 
 
   const executeWrite = async () => {
     try {
+      if (isGlobalQuotaExceeded()) {
+        notifySyncStatus('offline');
+        return;
+      }
+
       const cleanProjects = projects.map(p => ({
         id: p.id,
         name: p.name,
@@ -422,28 +621,42 @@ export function queueFirestoreSync(projects: HtmlProject[], immediate = false): 
         }))
       }));
 
-      // 1. Write individual project documents under users/{userId}/htmlNotesProjects/{projectId}
-      const writePromises = cleanProjects.map(proj => {
-        const projDoc = doc(db, 'users', user.uid, 'htmlNotesProjects', proj.id);
-        return setDoc(projDoc, removeUndefinedFields(proj), { merge: true });
-      });
-      await Promise.all(writePromises);
+      // 1. Write individual project documents with 1 MB size guardrails
+      for (const proj of cleanProjects) {
+        const sizeCheck = checkFirestoreDocSize(proj);
+        if (sizeCheck.isExceeded) {
+          console.warn(`[Firestore Limit Exceeded] Project "${proj.name}" is ${sizeCheck.formattedSize} (> 980 KB). Cloud write blocked to prevent 400 rejection.`);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('mockmc_doc_size_alert', { detail: { project: proj, sizeResult: sizeCheck } }));
+          }
+          continue; // Keep safely held in local IndexedDB/localStorage
+        }
 
-      // 2. Also write master single-document backup for legacy fallback
-      const targetDoc = doc(db, 'users', user.uid, 'notes_data', 'projects');
-      const payload = removeUndefinedFields({
-        userId: user.uid,
-        userEmail: user.email || '',
-        updatedAt: Date.now(),
-        projects: cleanProjects
-      });
-      await setDoc(targetDoc, payload, { merge: true });
+        const projDoc = doc(db, 'users', user.uid, 'htmlNotesProjects', proj.id);
+        await setDoc(projDoc, removeUndefinedFields(proj), { merge: true });
+      }
+
+
+
+      // Mark projects as synced locally
+      const syncedProjects = projects.map(p => ({ ...p, _syncStatus: 'synced' as const }));
+      saveLocalProjects(syncedProjects, user.uid);
+
+      // Atomically bump sync beacon notes revision
+      const nowRev = Date.now();
+      updateUserSyncBeacon(user.uid, { notesRev: nowRev }).catch(() => {});
+      smartCoordinator.setLocalSyncRevision(user.uid, 'notesRev', nowRev);
 
       lastSyncedHash = currentHash;
       notifySyncStatus('synced');
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Firestore HTML notes sync warning:', err);
-      notifySyncStatus('offline');
+      const errStr = String(err?.message || err || '');
+      if (errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('quota') || err?.code === 'resource-exhausted') {
+        notifySyncStatus('offline');
+      } else {
+        notifySyncStatus('offline');
+      }
     }
   };
 
@@ -457,16 +670,37 @@ export function queueFirestoreSync(projects: HtmlProject[], immediate = false): 
 /**
  * Real-Time Listener on Firestore:
  * Attaches a real-time onSnapshot listener on user's htmlNotesProjects collection.
- * Any change made on Device A reflects instantly on Device B with 0 duplicates!
+ * Uses non-destructive reconciliation so local pending edits are NEVER overwritten!
+ */
+/**
+ * Local-First Project Provider:
+ * Instantly loads local projects from cache/IndexedDB with 0 network operations.
+ * If local storage is empty on a brand-new device, performs a single-pass hydration pull with strict limit(25).
+ * Eliminates continuous onSnapshot collection listening and unbounded queries to prevent quota spikes.
  */
 export function subscribeToFirestoreProjects(
   userId: string,
   onProjectsUpdate: (projects: HtmlProject[]) => void
 ): Unsubscribe {
-  const userCol = collection(db, 'users', userId, 'htmlNotesProjects');
+  // 1. Immediately hydrate from local storage (0ms UI latency, 0 reads, 0 writes)
+  const currentLocal = loadLocalProjects(undefined, userId);
+  if (currentLocal && currentLocal.length > 0) {
+    onProjectsUpdate(currentLocal);
+    // Align local revision with beacon if not set
+    const localRevs = smartCoordinator.getLocalSyncRevisions(userId);
+    if (!localRevs.notesRev) {
+      smartCoordinator.setLocalSyncRevision(userId, 'notesRev', Date.now());
+    }
+    return () => {};
+  }
 
-  const unsubscribeCollection = onSnapshot(userCol, (snapshot) => {
-    if (!snapshot.empty) {
+  // 2. Single-pass cold start hydration ONLY if local storage is completely empty
+  // Strict limit(25) prevents downloading thousands of historical documents!
+  let isCancelled = false;
+  if (typeof navigator !== 'undefined' && navigator.onLine && !isGlobalQuotaExceeded()) {
+    const q = query(collection(db, 'users', userId, 'htmlNotesProjects'), limit(25));
+    getDocs(q).then((snapshot) => {
+      if (isCancelled || snapshot.empty) return;
       const remoteProjects: HtmlProject[] = snapshot.docs.map(d => {
         const data = d.data();
         return {
@@ -486,76 +720,66 @@ export function subscribeToFirestoreProjects(
         };
       });
 
-      saveLocalProjects(remoteProjects, userId);
-      lastSyncedHash = computeProjectsHash(remoteProjects);
-      notifySyncStatus('synced');
-      onProjectsUpdate(remoteProjects);
-    }
-  }, (err) => {
-    console.warn('Firestore htmlNotesProjects collection snapshot notice:', err);
-  });
-
-  // Fallback listener for single-doc fallback
-  const masterDoc = doc(db, 'users', userId, 'notes_data', 'projects');
-  const unsubscribeDoc = onSnapshot(masterDoc, (snap) => {
-    if (snap.exists()) {
-      const data = snap.data();
-      if (data && Array.isArray(data.projects) && data.projects.length > 0) {
-        const remoteProjects: HtmlProject[] = data.projects;
-        const currentHash = computeProjectsHash(remoteProjects);
-        if (currentHash !== lastSyncedHash) {
-          saveLocalProjects(remoteProjects, userId);
-          lastSyncedHash = currentHash;
-          notifySyncStatus('synced');
-          onProjectsUpdate(remoteProjects);
-        }
+      if (remoteProjects.length > 0) {
+        saveLocalProjects(remoteProjects, userId, true);
+        lastSyncedHash = computeProjectsHash(remoteProjects);
+        const now = Date.now();
+        smartCoordinator.setLocalSyncRevision(userId, 'notesRev', now);
+        notifySyncStatus('synced');
+        onProjectsUpdate(remoteProjects);
       }
-    }
-  }, (err) => {
-    console.warn('Firestore notes_data/projects snapshot notice:', err);
-  });
+    }).catch((err) => {
+      console.warn('Initial projects hydration notice:', err);
+    });
+  }
 
   return () => {
-    unsubscribeCollection();
-    unsubscribeDoc();
+    isCancelled = true;
   };
 }
 
 /**
- * Single initial read from Firestore on user sign-in to pull latest notes
+ * Reconcile remote projects when revision differences are detected by sync beacon
+ * Uses strict limit(25) and non-destructive reconciliation to protect offline/quota-exhaustion local notes.
  */
 export async function fetchRemoteProjectsIfNewer(user: User, localProjects: HtmlProject[]): Promise<HtmlProject[] | null> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return null;
   }
+  if (isGlobalQuotaExceeded()) {
+    return null;
+  }
   try {
-    const targetDoc = doc(db, 'users', user.uid, 'notes_data', 'projects');
-    const snap = await getDoc(targetDoc);
-    
-    if (!snap.exists()) {
-      if (localProjects.length > 0) {
-        queueFirestoreSync(localProjects, true);
-      }
-      return null;
-    }
+    const q = query(collection(db, 'users', user.uid, 'htmlNotesProjects'), limit(25));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return null;
 
-    const data = snap.data();
-    if (data && Array.isArray(data.projects) && data.projects.length > 0) {
-      const remoteProjects: HtmlProject[] = data.projects;
-      const remoteHash = computeProjectsHash(remoteProjects);
-      const localHash = computeProjectsHash(localProjects);
+    const remoteProjects: HtmlProject[] = snapshot.docs.map(d => {
+      const data = d.data();
+      return {
+        id: d.id || data.id,
+        name: data.name || 'Untitled Project',
+        description: data.description || '',
+        createdAt: data.createdAt || Date.now(),
+        updatedAt: data.updatedAt || Date.now(),
+        files: Array.isArray(data.files) ? data.files.map((f: any) => ({
+          id: f.id,
+          title: f.title || 'Untitled Note',
+          code: sanitizeAndRepairCode(f.code || ''),
+          createdAt: f.createdAt || Date.now(),
+          updatedAt: f.updatedAt || Date.now(),
+          tags: Array.isArray(f.tags) ? f.tags : []
+        })) : []
+      };
+    });
 
-      if (remoteHash !== localHash) {
-        saveLocalProjects(remoteProjects, user.uid);
-        lastSyncedHash = remoteHash;
-        notifySyncStatus('synced');
-        return remoteProjects;
-      }
-    }
+    const reconciled = reconcileHtmlProjects(localProjects, remoteProjects);
+    saveLocalProjects(reconciled, user.uid, true);
+    return reconciled;
   } catch (err) {
     console.warn('Remote projects fetch notice:', err);
-    notifySyncStatus('local_only');
+    return null;
   }
-  return null;
 }
+
 

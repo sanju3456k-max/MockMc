@@ -454,7 +454,7 @@ export const GeminiStudioPromptBar: React.FC<GeminiStudioPromptBarProps> = ({
             <button
               type="button"
               onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
-              className={`w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-slate-200 dark:border-zinc-700 shadow-xs ${
+              className={`w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-slate-200 dark:border-transparent shadow-xs ${
                 isAddMenuOpen
                   ? 'bg-blue-600 text-white rotate-45 border-blue-600'
                   : 'bg-white dark:bg-[#282a2d] text-[#1f1f1f] dark:text-[#e3e3e3] hover:bg-[#f8fafd] dark:hover:bg-[#35383f]'
@@ -469,9 +469,9 @@ export const GeminiStudioPromptBar: React.FC<GeminiStudioPromptBarProps> = ({
               <button
                 type="button"
                 onClick={onToggleSearchGrounding}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-150 cursor-pointer select-none border border-slate-200 dark:border-zinc-700 outline-none active:scale-95 ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-150 cursor-pointer select-none border border-slate-200 dark:border-transparent outline-none active:scale-95 ${
                   enableSearchGrounding
-                    ? 'bg-[#d3e3fd] dark:bg-[#004a77] text-[#041e49] dark:text-[#c2e7ff] border-blue-300 dark:border-blue-700 shadow-xs'
+                    ? 'bg-[#d3e3fd] dark:bg-[#004a77] text-[#041e49] dark:text-[#c2e7ff] border-blue-300 dark:border-transparent shadow-xs'
                     : 'bg-white dark:bg-[#282a2d] text-[#444746] dark:text-[#c4c7c5] hover:bg-[#f8fafd] dark:hover:bg-[#35383f] shadow-xs'
                 }`}
                 title="Toggle Google Search Grounding"
@@ -483,9 +483,9 @@ export const GeminiStudioPromptBar: React.FC<GeminiStudioPromptBarProps> = ({
               <button
                 type="button"
                 onClick={onToggleCodeExecution}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-150 cursor-pointer select-none border border-slate-200 dark:border-zinc-700 outline-none active:scale-95 ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-150 cursor-pointer select-none border border-slate-200 dark:border-transparent outline-none active:scale-95 ${
                   enableCodeExecution
-                    ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700 shadow-xs'
+                    ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-transparent shadow-xs'
                     : 'bg-white dark:bg-[#282a2d] text-[#444746] dark:text-[#c4c7c5] hover:bg-[#f8fafd] dark:hover:bg-[#35383f] shadow-xs'
                 }`}
                 title="Toggle Python Code Execution Sandbox"

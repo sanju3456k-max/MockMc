@@ -59,6 +59,8 @@ interface HtmlNotesHomeViewProps {
 
 export const HtmlNotesHomeView: React.FC<HtmlNotesHomeViewProps> = ({
   projects,
+  onCreateNewProject,
+  onImportClick,
   onOpenProject,
   onOpenFile,
   onAddFileToProject,
@@ -96,8 +98,41 @@ export const HtmlNotesHomeView: React.FC<HtmlNotesHomeViewProps> = ({
           </div>
         </div>
 
-        {/* Project Cards */}
-        <div className="space-y-3">
+        {/* Project Cards or Empty State */}
+        {projects.length === 0 ? (
+          <div className="p-8 sm:p-12 rounded-[24px] bg-white dark:bg-[#1e2024] border border-dashed border-slate-300 dark:border-zinc-700 text-center flex flex-col items-center justify-center gap-3 shadow-xs">
+            <div className="w-12 h-12 rounded-full bg-[#0b57d0]/10 text-[#0b57d0] dark:bg-[#a8c7fa]/15 dark:text-[#a8c7fa] flex items-center justify-center">
+              <FolderOpen className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200 m-0">No projects yet</h3>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1 mb-0">Create your first chapter project or import an HTML document to get started.</p>
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              {onCreateNewProject && (
+                <button
+                  type="button"
+                  onClick={onCreateNewProject}
+                  className="px-4 py-2 rounded-full bg-[#0b57d0] hover:bg-[#0842a0] text-white font-bold text-xs border-0 cursor-pointer active:scale-95 transition-all shadow-xs flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Create First Project</span>
+                </button>
+              )}
+              {onImportClick && (
+                <button
+                  type="button"
+                  onClick={onImportClick}
+                  className="px-4 py-2 rounded-full bg-white dark:bg-[#282a30] hover:bg-[#f0f4f9] dark:hover:bg-[#32353c] text-slate-800 dark:text-zinc-200 font-bold text-xs border border-slate-200 dark:border-zinc-700 cursor-pointer active:scale-95 transition-all shadow-xs flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Import HTML</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
           {projects.map((proj) => {
             const isExpanded = !!expandedProjects[proj.id];
             const isRenaming = renamingProjectId === proj.id;
@@ -307,6 +342,7 @@ export const HtmlNotesHomeView: React.FC<HtmlNotesHomeViewProps> = ({
             );
           })}
         </div>
+      )}
       </div>
     </div>
   );

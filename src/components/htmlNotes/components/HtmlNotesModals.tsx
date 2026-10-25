@@ -52,9 +52,6 @@ interface HtmlNotesModalsProps {
   deleteTargetType?: 'file' | 'project';
   // Saved toast feedback
   savedSuccess: boolean;
-  // Print modal url
-  printModalUrl: string | null;
-  setPrintModalUrl: (url: string | null) => void;
   // Hidden inputs
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   imageUploadRef: React.RefObject<HTMLInputElement | null>;
@@ -90,8 +87,6 @@ export const HtmlNotesModals: React.FC<HtmlNotesModalsProps> = ({
   noteTitle,
   deleteTargetType = 'file',
   savedSuccess,
-  printModalUrl,
-  setPrintModalUrl,
   fileInputRef,
   imageUploadRef,
   onImportFile,
@@ -268,49 +263,6 @@ export const HtmlNotesModals: React.FC<HtmlNotesModalsProps> = ({
         </div>
       )}
 
-      {/* DIRECT PRINT POPUP BANNER */}
-      {printModalUrl && (
-        <div className="fixed bottom-4 right-4 left-4 sm:left-auto z-50 p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-blue-500 shadow-2xl flex flex-col gap-2 max-w-sm">
-          <div className="flex items-center justify-between">
-            <div className="font-extrabold text-xs flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
-              <Printer className="w-4 h-4" />
-              <span>Print Ready</span>
-            </div>
-            <button
-              onClick={() => setPrintModalUrl(null)}
-              className="round-icon"
-              style={{ width: '20px', height: '20px', border: 0 }}
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-          <p className="text-[11px] text-slate-600 dark:text-zinc-300 m-0">
-            If your browser popup blocker paused the print dialog, click below:
-          </p>
-          <div className="flex items-center gap-2 mt-1">
-            <a
-              href={printModalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setPrintModalUrl(null)}
-              className="flex-1 py-1.5 px-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Open & Print</span>
-            </a>
-            <button
-              onClick={() => {
-                onExportHtml();
-                setPrintModalUrl(null);
-              }}
-              style={{ padding: '6px 10px', fontSize: '11px' }}
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Save File</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* DELETE CONFIRMATION POPUP MODAL */}
       {showDeleteConfirmModal && (

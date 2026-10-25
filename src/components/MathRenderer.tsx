@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useEffect, useState, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import katex from 'katex';
+import { MathErrorBoundary } from './MathErrorBoundary';
 import { MindMapVisualizer } from './MindMapVisualizer';
 import { InteractiveGraphWidget } from './InteractiveGraphWidget';
 import { InteractiveTableWidget } from './InteractiveTableWidget';
@@ -110,6 +111,9 @@ function cleanMathString(mathStr: string): string {
 
   // 0. Normalize double backslashes before LaTeX commands or symbols from JSON escaping
   s = s.replace(/\\\\([a-zA-Z]+|[|{}[\],;])/g, '\\$1');
+
+  // 0a. Normalize forward-slash command typos e.g. /displaystyle -> \displaystyle, /textstyle -> \textstyle
+  s = s.replace(/\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|text|mathbf|mathrm|partial)\b/g, '\\$1');
 
   // 0b. Escape raw underscores inside \text{...} or double-underscores to prevent KaTeX subscript crashes (lookbehind-free)
   s = s.replace(/\\text\s*\{([^{}]+)\}/g, (match, textContent) => {
@@ -444,7 +448,7 @@ function renderMathToken(rawMath: string, forceDisplay = false): string {
         displayMode: forceDisplay 
       });
       if (forceDisplay) {
-        return `<div class="katex-display">${rendered}</div>`;
+        return `<div class="katex-scroll-wrapper" style="overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%;"><div class="katex-display">${rendered}</div></div>`;
       }
       return `<span class="inline-math">${rendered}</span>`;
     } catch {
@@ -452,8 +456,16 @@ function renderMathToken(rawMath: string, forceDisplay = false): string {
     }
   };
 
-  // 1. Direct render
-  const directResult = tryKatex(cleaned);
+  // Helper to ensure math is rendered in full \displaystyle for harmonious font matching with surrounding text
+  const withDisplayStyle = (math: string): string => {
+    if (forceDisplay || math.includes('\\displaystyle') || math.trim().startsWith('\\begin')) {
+      return math;
+    }
+    return `\\displaystyle ${math}`;
+  };
+
+  // 1. Direct render with \displaystyle (fallback to cleaned if any rare parser edge case occurs)
+  const directResult = tryKatex(withDisplayStyle(cleaned)) || tryKatex(cleaned);
   if (directResult) return directResult;
 
   // 2. Recovery: Replace undefined command with \operatorname{cmd}
@@ -462,13 +474,13 @@ function renderMathToken(rawMath: string, forceDisplay = false): string {
     if (LATEX_COMMANDS_REGEX.test(match)) return match;
     return `\\operatorname{${cmd}}`;
   });
-  const recResult1 = tryKatex(recovered);
+  const recResult1 = tryKatex(withDisplayStyle(recovered)) || tryKatex(recovered);
   if (recResult1) return recResult1;
 
   // 3. Recovery: Escape raw % or # or & outside matrix environments
   if (!isMatrixExpression(cleaned)) {
     recovered = recovered.replace(/(?<!\\)%/g, '\\%').replace(/(?<!\\)#/g, '\\#');
-    const recResult2 = tryKatex(recovered);
+    const recResult2 = tryKatex(withDisplayStyle(recovered)) || tryKatex(recovered);
     if (recResult2) return recResult2;
   }
 
@@ -1972,17 +1984,19 @@ export const MathRenderer: React.FC<MathRendererProps> = ({
   }, [renderedHtml]);
 
   return (
-    <div 
-      ref={containerRef}
-      className={`math-content leading-relaxed max-w-full w-full min-w-0 [text-rendering:optimizeLegibility] [-webkit-font-smoothing:antialiased] [-moz-osx-font-smoothing:grayscale] ${className}`}
-    >
-      <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-      {widgetPortals.map((portal) => 
-        portal.container && portal.container.isConnected
-          ? createPortal(portal.node, portal.container, portal.id)
-          : null
-      )}
-    </div>
+    <MathErrorBoundary fallbackText={inputStr} className={className}>
+      <div 
+        ref={containerRef}
+        className={`math-content leading-relaxed max-w-full w-full min-w-0 [text-rendering:optimizeLegibility] [-webkit-font-smoothing:antialiased] [-moz-osx-font-smoothing:grayscale] ${className}`}
+      >
+        <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+        {widgetPortals.map((portal) => 
+          portal.container && portal.container.isConnected
+            ? createPortal(portal.node, portal.container, portal.id)
+            : null
+        )}
+      </div>
+    </MathErrorBoundary>
   );
 };
 

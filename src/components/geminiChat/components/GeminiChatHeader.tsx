@@ -23,8 +23,6 @@ interface GeminiChatHeaderProps {
   setSelectedRole: (role: string) => void;
   showRolePickerModal: boolean;
   setShowRolePickerModal: (show: boolean) => void;
-  cloudSyncActive: boolean;
-  onToggleCloudSync: () => void;
   onNavigateTab?: (tab: string) => void;
   onToggleSidebar: () => void;
   updateActiveSessionModel: (model: GeminiModelTier) => void;
@@ -39,8 +37,6 @@ export const GeminiChatHeader: React.FC<GeminiChatHeaderProps> = ({
   setSelectedRole,
   showRolePickerModal,
   setShowRolePickerModal,
-  cloudSyncActive,
-  onToggleCloudSync,
   onNavigateTab,
   onToggleSidebar,
   updateActiveSessionModel
@@ -144,19 +140,6 @@ export const GeminiChatHeader: React.FC<GeminiChatHeaderProps> = ({
             )}
           </AnimatePresence>
         </div>
-
-        {/* Cloud Sync Button */}
-        <button
-          onClick={onToggleCloudSync}
-          className={`w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-full flex items-center justify-center border-0 shadow-none transition-all cursor-pointer active:scale-95 ${
-            cloudSyncActive
-              ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-[#20222e]'
-              : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-[#282a30]'
-          }`}
-          title={cloudSyncActive ? 'Cloud Sync Enabled' : 'Cloud Sync Disabled'}
-        >
-          {cloudSyncActive ? <Cloud className="w-4 h-4" /> : <CloudOff className="w-4 h-4" />}
-        </button>
 
         {/* Preset Role Button */}
         <button

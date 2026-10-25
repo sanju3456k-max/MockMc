@@ -69,7 +69,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
   .katex {
     user-select: all !important;
     cursor: default !important;
-    font-size: 1.05em !important;
+    font-size: 1.08em !important;
     line-height: inherit !important;
     text-rendering: optimizeLegibility !important;
   }
@@ -88,7 +88,13 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     cursor: default !important;
   }
   .katex .mfrac .vlist-t .vlist-r .vlist > span {
-    font-size: 0.92em;
+    font-size: 1em !important;
+  }
+  .katex .sizing {
+    font-size: 1em !important;
+  }
+  .katex .mop.op-limits > .vlist-t {
+    font-size: 1em !important;
   }
   .katex .mrel {
     margin-left: 0.22em !important;
@@ -302,21 +308,127 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
   }
   window.openFile = openFile;
 
-  // 2. KaTeX Math Auto-Render Helper
-  function renderKaTeXMathInDocument() {
-    if (!window.renderMathInElement) {
+  // 2. KaTeX Math Auto-Render Helper & Direct TreeWalker Engine
+  function resolveKaTeX() {
+    var k = window.katex;
+    if (!k || typeof k.renderToString !== 'function') {
       try {
         var p = window.parent !== window ? window.parent : window.opener;
-        if (p) {
-          if (!window.katex && p.katex) window.katex = p.katex;
-          if (!window.renderMathInElement && p.renderMathInElement) window.renderMathInElement = p.renderMathInElement;
+        if (p && p.katex) {
+          k = (p.katex && p.katex.renderToString) ? p.katex : ((p.katex && p.katex.default) || p.katex);
+          window.katex = k;
         }
       } catch(e) {}
     }
+    return (k && typeof k.renderToString === 'function') ? k : null;
+  }
 
-    if (typeof window.renderMathInElement === 'function') {
+  function resolveRenderMath() {
+    var fn = window.renderMathInElement;
+    if (typeof fn !== 'function') {
+      if (fn && typeof fn.default === 'function') {
+        fn = fn.default;
+        window.renderMathInElement = fn;
+        return fn;
+      }
       try {
-        window.renderMathInElement(document.body, {
+        var p = window.parent !== window ? window.parent : window.opener;
+        if (p && p.renderMathInElement) {
+          fn = typeof p.renderMathInElement === 'function' ? p.renderMathInElement : ((p.renderMathInElement && p.renderMathInElement.default) || p.renderMathInElement);
+          if (typeof fn === 'function') {
+            window.renderMathInElement = fn;
+            return fn;
+          }
+        }
+      } catch(e) {}
+    }
+    return typeof fn === 'function' ? fn : null;
+  }
+
+  function directRenderMathInTree(root) {
+    var k = resolveKaTeX();
+    if (!k || typeof k.renderToString !== 'function' || !root) return;
+
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(node) {
+        if (!node.nodeValue || node.nodeValue.indexOf('$') === -1) return NodeFilter.FILTER_REJECT;
+        var p = node.parentElement;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        var tag = p.tagName.toLowerCase();
+        if (tag === 'script' || tag === 'style' || tag === 'textarea' || tag === 'pre' || tag === 'code') return NodeFilter.FILTER_REJECT;
+        if (p.closest('.katex, .katex-display, .katex-html')) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    var textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+    var mathPattern = /\\$\\$([\\s\\S]+?)\\$\\$|\\$([^\\$\\n]+?)\\$/g;
+    for (var i = 0; i < textNodes.length; i++) {
+      var tn = textNodes[i];
+      var text = tn.nodeValue;
+      if (!text || text.indexOf('$') === -1) continue;
+
+      mathPattern.lastIndex = 0;
+      if (!mathPattern.test(text)) continue;
+      mathPattern.lastIndex = 0;
+
+      var frag = document.createDocumentFragment();
+      var lastIdx = 0;
+      var match;
+      var hasMatch = false;
+
+      while ((match = mathPattern.exec(text)) !== null) {
+        hasMatch = true;
+        var start = match.index;
+        if (start > lastIdx) {
+          frag.appendChild(document.createTextNode(text.substring(lastIdx, start)));
+        }
+        var isDisplay = Boolean(match[1]);
+        var math = (match[1] || match[2] || '').trim();
+        math = math.replace(/\\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\\b/g, '\\\\$1');
+
+        try {
+          var rendered = k.renderToString(math, {
+            displayMode: isDisplay,
+            throwOnError: false
+          });
+          var span = document.createElement('span');
+          span.innerHTML = rendered;
+          var kEl = span.firstElementChild || span;
+          kEl.setAttribute('contenteditable', 'false');
+          frag.appendChild(kEl);
+        } catch(err) {
+          frag.appendChild(document.createTextNode(match[0]));
+        }
+        lastIdx = mathPattern.lastIndex;
+      }
+
+      if (hasMatch) {
+        if (lastIdx < text.length) {
+          frag.appendChild(document.createTextNode(text.substring(lastIdx)));
+        }
+        if (tn.parentNode) {
+          tn.parentNode.replaceChild(frag, tn);
+        }
+      }
+    }
+  }
+
+  function renderKaTeXMathInDocument() {
+    var fn = resolveRenderMath();
+    var k = resolveKaTeX();
+
+    if (fn) {
+      try {
+        fn(document.body, {
+          preProcess: function(math) {
+            var s = math ? math.trim() : '';
+            if (!s) return '';
+            // Normalize forward-slash command typos (e.g. /frac -> \frac, /lim -> \lim)
+            return s.replace(/\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\b/g, '\\$1');
+          },
           delimiters: [
             {left: '$$', right: '$$', display: true},
             {left: '$', right: '$', display: false},
@@ -369,10 +481,16 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
           ignoredClasses: ["katex", "katex-display", "katex-html", "katex-mathml"],
           throwOnError: false
         });
-        var katexEls = document.querySelectorAll('.katex, .katex-display');
-        katexEls.forEach(function(k) { k.setAttribute('contenteditable', 'false'); });
       } catch(e) {}
-    } else {
+    }
+
+    // Direct walker guarantees 100% of $...$ and $$...$$ are rendered immediately
+    directRenderMathInTree(document.body);
+
+    var katexEls = document.querySelectorAll('.katex, .katex-display');
+    katexEls.forEach(function(kEl) { kEl.setAttribute('contenteditable', 'false'); });
+
+    if (!fn && !k) {
       setTimeout(renderKaTeXMathInDocument, 50);
     }
   }
@@ -422,7 +540,10 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
   function cleanKaTeXFromClone(clone) {
     function replaceKatexNode(el, nodeToInsert) {
       var target = el;
-      if (el.parentNode && el.parentNode.tagName === 'SPAN' && (el.parentNode.childNodes.length === 1 || el.parentNode.classList.contains('katex-display'))) {
+      var scrollWrap = el.closest ? el.closest('.katex-scroll-wrapper') : null;
+      if (scrollWrap) {
+        target = scrollWrap;
+      } else if (el.parentNode && el.parentNode.tagName === 'SPAN' && (el.parentNode.childNodes.length === 1 || el.parentNode.classList.contains('katex-display'))) {
         target = el.parentNode;
       }
       if (target.parentNode) {
@@ -457,8 +578,9 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     var displayEls = Array.from(clone.querySelectorAll('.katex-display'));
     displayEls.forEach(function(el) {
       if (!clone.contains(el)) return;
+      var wrap = el.closest ? el.closest('.katex-scroll-wrapper') : null;
       var annotation = el.querySelector('annotation[encoding="application/x-tex"], annotation');
-      var tex = annotation ? annotation.textContent.trim() : (el.textContent ? el.textContent.trim() : '');
+      var tex = (wrap && wrap.getAttribute('data-latex')) || el.getAttribute('data-latex') || (annotation ? annotation.textContent.trim() : (el.textContent ? el.textContent.trim() : ''));
       if (tex) {
         tex = tex.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
         tex = tex.replace(/\\\\frac\\{\\\\frac\\{!\\}\\[?A\\]?!\\}\\s*(?:\\\\frac\\{!\\}\\[?A\\]\\}?)+/g, 'A');
@@ -471,6 +593,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
         tex = tex.replace(/(?<![\\\\a-zA-Z])rac\\{/g, '\\\\frac{');
         tex = tex.replace(/(?<![\\\\a-zA-Z])ext\\{/g, '\\\\text{');
         tex = tex.replace(/[\\x0C\\x0B]/g, '');
+        tex = tex.replace(/^\{\\\\displaystyle\s*/, '').replace(/\}$/, '').replace(/^\\\\displaystyle\s*/, '');
         var textNode = document.createTextNode(String.fromCharCode(10) + '$$ ' + tex + ' $$' + String.fromCharCode(10));
         replaceKatexNode(el, textNode);
       }
@@ -481,7 +604,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     inlineEls.forEach(function(el) {
       if (!clone.contains(el)) return;
       var annotation = el.querySelector('annotation[encoding="application/x-tex"], annotation');
-      var tex = annotation ? annotation.textContent.trim() : (el.textContent ? el.textContent.trim() : '');
+      var tex = el.getAttribute('data-latex') || (annotation ? annotation.textContent.trim() : (el.textContent ? el.textContent.trim() : ''));
       if (tex) {
         tex = tex.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
         tex = tex.replace(/\\\\frac\\{\\\\frac\\{!\\}\\[?A\\]?!\\}\\s*(?:\\\\frac\\{!\\}\\[?A\\]\\}?)+/g, 'A');
@@ -494,6 +617,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
         tex = tex.replace(/(?<![\\\\a-zA-Z])rac\\{/g, '\\\\frac{');
         tex = tex.replace(/(?<![\\\\a-zA-Z])ext\\{/g, '\\\\text{');
         tex = tex.replace(/[\\x0C\\x0B]/g, '');
+        tex = tex.replace(/^\{\\\\displaystyle\s*/, '').replace(/\}$/, '').replace(/^\\\\displaystyle\s*/, '');
         var textNode = document.createTextNode('$' + tex + '$');
         replaceKatexNode(el, textNode);
       }
@@ -1809,64 +1933,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     });
   }
 
-  // Touch Pinch-to-Zoom Gesture Engine for mobile devices
-  (function setupPinchZoom() {
-    var initialTouchDist = 0;
-    var initialZoomFactor = 1;
-
-    function getTouchDistance(e) {
-      if (!e.touches || e.touches.length < 2) return 0;
-      var dx = e.touches[0].clientX - e.touches[1].clientX;
-      var dy = e.touches[0].clientY - e.touches[1].clientY;
-      return Math.hypot(dx, dy);
-    }
-
-    function applyZoomToDocument(nextZoom) {
-      document.documentElement.style.setProperty('--paper-zoom', nextZoom);
-      if (document.body) {
-        document.body.style.setProperty('--paper-zoom', nextZoom);
-        document.body.style.zoom = nextZoom;
-      }
-      var container = document.querySelector('.a4-container');
-      if (container) {
-        container.style.setProperty('--paper-zoom', nextZoom);
-        container.style.zoom = nextZoom;
-      }
-      var pages = document.querySelectorAll('.a4-page');
-      pages.forEach(function(pg) {
-        pg.style.setProperty('--paper-zoom', nextZoom);
-        pg.style.zoom = nextZoom;
-      });
-    }
-
-    window.addEventListener('touchstart', function(e) {
-      if (e.touches && e.touches.length === 2) {
-        initialTouchDist = getTouchDistance(e);
-        var currentZoomStr = getComputedStyle(document.documentElement).getPropertyValue('--paper-zoom') || '1';
-        initialZoomFactor = parseFloat(currentZoomStr) || 1;
-      }
-    }, { passive: true });
-
-    window.addEventListener('touchmove', function(e) {
-      if (e.touches && e.touches.length === 2 && initialTouchDist > 0) {
-        var currentDist = getTouchDistance(e);
-        if (currentDist > 0) {
-          var ratio = currentDist / initialTouchDist;
-          var targetZoomFactor = Math.min(2.5, Math.max(0.3, initialZoomFactor * ratio));
-          applyZoomToDocument(targetZoomFactor);
-          try {
-            window.parent.postMessage({ type: 'NOTES_STUDIO_ZOOM_CHANGE', zoomLevel: Math.round(targetZoomFactor * 100) }, '*');
-          } catch (_) {}
-        }
-      }
-    }, { passive: true });
-
-    window.addEventListener('touchend', function(e) {
-      if (!e.touches || e.touches.length < 2) {
-        initialTouchDist = 0;
-      }
-    }, { passive: true });
-  })();
+  // Multi-touch pinch-to-zoom is disabled. Zooming is strictly controlled via zoom in/out buttons.
 
   // Initial setup on DOM ready
   function initDoc() {

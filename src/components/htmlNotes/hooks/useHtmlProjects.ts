@@ -6,6 +6,7 @@ import {
   saveLocalProjects,
   loadLocalProjects,
   queueFirestoreSync,
+  saveSingleProjectToFirestore,
   sanitizeAndRepairCode
 } from '../../../lib/htmlNotesSync';
 import {
@@ -22,6 +23,16 @@ import {
   clearFileVersionHistory
 } from '../utils/versionHistory';
 import { ensureStableBlockIds } from '../utils/docStructureMap';
+import { getCachedAuthUser } from '../../../lib/storage';
+import { auth } from '../../../lib/firebase';
+
+const getEffectiveAuthUid = () => {
+  try {
+    return auth?.currentUser?.uid || (typeof window !== 'undefined' ? getCachedAuthUser()?.uid || null : null);
+  } catch {
+    return typeof window !== 'undefined' ? getCachedAuthUser()?.uid || null : null;
+  }
+};
 
 interface UseHtmlProjectsOptions {
   onShowDriveToast?: (msg: string) => void;
@@ -36,25 +47,30 @@ export function useHtmlProjects({
   viewMode,
   setViewMode
 }: UseHtmlProjectsOptions) {
+  const getInitialProjects = () => {
+    const cachedUid = typeof window !== 'undefined' ? getCachedAuthUser()?.uid || null : null;
+    return loadLocalProjects(TEMPLATE_MATRICES, cachedUid);
+  };
+
   const [projects, setProjects] = useState<HtmlProject[]>(() => {
-    return loadLocalProjects(TEMPLATE_MATRICES);
+    return getInitialProjects();
   });
   const [activeProjectId, setActiveProjectId] = useState<string>(() => {
-    const initial = loadLocalProjects(TEMPLATE_MATRICES);
+    const initial = getInitialProjects();
     return initial.length > 0 ? initial[0].id : '';
   });
   const [activeFileId, setActiveFileId] = useState<string>(() => {
-    const initial = loadLocalProjects(TEMPLATE_MATRICES);
+    const initial = getInitialProjects();
     return (initial.length > 0 && initial[0].files.length > 0) ? initial[0].files[0].id : '';
   });
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
 
   const [code, setCode] = useState<string>(() => {
-    const initial = loadLocalProjects(TEMPLATE_MATRICES);
+    const initial = getInitialProjects();
     return (initial.length > 0 && initial[0].files.length > 0) ? (initial[0].files[0].code || TEMPLATE_MATRICES) : TEMPLATE_MATRICES;
   });
   const [title, setTitle] = useState<string>(() => {
-    const initial = loadLocalProjects(TEMPLATE_MATRICES);
+    const initial = getInitialProjects();
     return (initial.length > 0 && initial[0].files.length > 0) ? (initial[0].files[0].title || 'Notes') : 'Notes';
   });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
@@ -62,11 +78,11 @@ export function useHtmlProjects({
 
   // Per-file isolated history map & file loading guard
   const loadedFileIdRef = useRef<string>((() => {
-    const initial = loadLocalProjects(TEMPLATE_MATRICES);
+    const initial = getInitialProjects();
     return (initial.length > 0 && initial[0].files.length > 0) ? initial[0].files[0].id : '';
   })());
   const fileHistoryMapRef = useRef<Record<string, { stack: string[]; index: number }>>((() => {
-    const initial = loadLocalProjects(TEMPLATE_MATRICES);
+    const initial = getInitialProjects();
     if (initial.length > 0 && initial[0].files.length > 0) {
       const f = initial[0].files[0];
       return { [f.id]: { stack: [f.code || TEMPLATE_MATRICES], index: 0 } };
@@ -74,7 +90,7 @@ export function useHtmlProjects({
     return {};
   })());
   const [historyStack, setHistoryStack] = useState<string[]>(() => {
-    const initial = loadLocalProjects(TEMPLATE_MATRICES);
+    const initial = getInitialProjects();
     return (initial.length > 0 && initial[0].files.length > 0) ? [initial[0].files[0].code || TEMPLATE_MATRICES] : [TEMPLATE_MATRICES];
   });
   const [historyIndex, setHistoryIndex] = useState<number>(0);
@@ -112,6 +128,7 @@ export function useHtmlProjects({
     if (!activeProjectId || !activeFileId) return;
     // Guard against race conditions during tab switching: do NOT save if activeFileId has not been loaded into code yet
     if (loadedFileIdRef.current !== activeFileId) return;
+    if (!hasUnsavedChangesRef.current) return;
 
     const currentProj = projectsRef.current.find(p => p.id === activeProjectId);
     const currentFile = currentProj?.files.find(f => f.id === activeFileId);
@@ -125,18 +142,21 @@ export function useHtmlProjects({
         if (p.id === activeProjectId) {
           const fileExists = p.files.some((f) => f.id === activeFileId);
           let newFiles = p.files;
+          const now = Date.now();
           if (fileExists) {
-            newFiles = p.files.map((f) => (f.id === activeFileId ? { ...f, code, title, updatedAt: Date.now() } : f));
+            newFiles = p.files.map((f) => (f.id === activeFileId ? { ...f, code, title, updatedAt: now, localUpdatedAt: now, _syncStatus: 'pending' as const } : f));
           } else {
             const refProj = projectsRef.current.find((rp) => rp.id === activeProjectId);
             const refFile = refProj?.files.find((rf) => rf.id === activeFileId);
             if (refFile) {
-              newFiles = [...p.files, { ...refFile, code, title, updatedAt: Date.now() }];
+              newFiles = [...p.files, { ...refFile, code, title, updatedAt: now, localUpdatedAt: now, _syncStatus: 'pending' as const }];
             }
           }
           return {
             ...p,
-            updatedAt: Date.now(),
+            updatedAt: now,
+            localUpdatedAt: now,
+            _syncStatus: 'pending' as const,
             files: newFiles,
           };
         }
@@ -353,19 +373,14 @@ export function useHtmlProjects({
     projectsRef.current = updated;
     saveLocalProjects(updated, undefined, true);
 
-    // Write to Firebase Firestore immediately at exit or manual save
-    recordHtmlProjectsUpdate(updated, undefined, true);
-    queueFirestoreSync(updated, true);
+    // Write strictly the single edited project to Firestore (1 single write)
+    const targetProj = updated.find(p => p.id === pId);
+    if (targetProj) {
+      saveSingleProjectToFirestore(targetProj, getEffectiveAuthUid());
+    }
 
     if (pId && fId) {
       saveFileVersionSnapshot(pId, fId, currentTitle, identifiedCode);
-      const targetProj = updated.find(p => p.id === pId);
-      const targetFile = targetProj?.files.find(f => f.id === fId);
-      if (targetProj && targetFile) {
-        import('../../../lib/htmlNotesCloudSyncEngine').then(({ recordNoteSaveWithDriveOutbox }) => {
-          recordNoteSaveWithDriveOutbox(pId, targetFile);
-        });
-      }
     }
 
     hasUnsavedChangesRef.current = false;
@@ -386,7 +401,7 @@ export function useHtmlProjects({
     commitPendingChangesToFirebase();
   }, [commitPendingChangesToFirebase]);
 
-  // Auto-commit unsaved edits to Firebase when leaving Notes Studio tab, unmounting, or closing browser tab
+  // Auto-commit unsaved edits to Firebase strictly when closing browser tab / window or navigating away
   useEffect(() => {
     const handleExit = () => {
       if (hasUnsavedChangesRef.current) {
@@ -397,21 +412,9 @@ export function useHtmlProjects({
     window.addEventListener('beforeunload', handleExit);
     window.addEventListener('pagehide', handleExit);
 
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden' && hasUnsavedChangesRef.current) {
-        commitPendingChangesToFirebase();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
     return () => {
-      // Unmount: user leaves Notes Studio project tab or navigates away
-      if (hasUnsavedChangesRef.current) {
-        commitPendingChangesToFirebase();
-      }
       window.removeEventListener('beforeunload', handleExit);
       window.removeEventListener('pagehide', handleExit);
-      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [commitPendingChangesToFirebase]);
 
@@ -458,8 +461,10 @@ export function useHtmlProjects({
       projectsRef.current = updated;
       setProjects(updated);
       saveLocalProjects(updated, undefined, true);
-      recordHtmlProjectsUpdate(updated, undefined, true);
-      queueFirestoreSync(updated, true);
+      const targetProj = updated.find(p => p.id === proj.id);
+      if (targetProj) {
+        saveSingleProjectToFirestore(targetProj, getEffectiveAuthUid());
+      }
 
       setActiveFileId(newFile.id);
       activeFileIdRef.current = newFile.id;
@@ -535,34 +540,74 @@ export function useHtmlProjects({
   }, [checkAndSaveBeforeAction, setViewMode, onSetStudioView, onShowDriveToast]);
 
   const handleCreateNewProject = useCallback(() => {
-    const newProj: HtmlProject = {
-      id: `proj_${Date.now()}`,
-      name: `New Chapter ${projects.length + 1}`,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      files: [
-        {
-          id: `file_${Date.now()}`,
-          title: 'Notes',
-          code: createNewNoteTemplate('Notes'),
-          createdAt: Date.now(),
-          updatedAt: Date.now()
-        }
-      ]
+    // 1. Commit and save any pending changes on currently open file first
+    checkAndSaveBeforeAction();
+
+    const currentProjects = (projectsRef.current && projectsRef.current.length > 0)
+      ? projectsRef.current
+      : projects;
+
+    const now = Date.now();
+    const newProjId = `proj_${now}_${Math.random().toString(36).substring(2, 7)}`;
+    const newFileId = `file_${now}_${Math.random().toString(36).substring(2, 7)}`;
+    const newFileCode = createNewNoteTemplate('Notes');
+
+    const newFile: HtmlNoteItem = {
+      id: newFileId,
+      title: 'Notes',
+      code: newFileCode,
+      createdAt: now,
+      updatedAt: now,
+      localUpdatedAt: now,
+      _syncStatus: 'pending'
     };
-    const updated = [newProj, ...projects];
+
+    const newProj: HtmlProject = {
+      id: newProjId,
+      name: `New Chapter ${currentProjects.length + 1}`,
+      createdAt: now,
+      updatedAt: now,
+      localUpdatedAt: now,
+      _syncStatus: 'pending',
+      files: [newFile]
+    };
+
+    const updated = [newProj, ...currentProjects];
+    const effectiveUid = getEffectiveAuthUid();
     projectsRef.current = updated;
     setProjects(updated);
-    saveLocalProjects(updated);
-    recordHtmlProjectsUpdate(updated);
-    queueFirestoreSync(updated);
+    saveLocalProjects(updated, effectiveUid, true);
+    recordHtmlProjectsUpdate(updated, effectiveUid, true);
+    queueFirestoreSync(updated, true);
 
     import('../../../lib/htmlNotesCloudSyncEngine').then(({ recordNoteSaveWithDriveOutbox }) => {
-      recordNoteSaveWithDriveOutbox(newProj.id, newProj.files[0]);
+      recordNoteSaveWithDriveOutbox(newProj.id, newFile);
     });
 
-    handleOpenProject(newProj);
-  }, [projects, handleOpenProject]);
+    // Auto-expand new project in explorer
+    setExpandedProjects(prev => ({ ...prev, [newProj.id]: true }));
+
+    // Initialize history stack for the new note
+    fileHistoryMapRef.current[newFile.id] = { stack: [newFileCode], index: 0 };
+    setHistoryStack([newFileCode]);
+    setHistoryIndex(0);
+
+    // Directly and cleanly activate the new project and note
+    setActiveProjectId(newProj.id);
+    activeProjectIdRef.current = newProj.id;
+    setActiveFileId(newFile.id);
+    activeFileIdRef.current = newFile.id;
+    setTitle(newFile.title);
+    titleRef.current = newFile.title;
+    setCode(newFileCode);
+    codeRef.current = newFileCode;
+    loadedFileIdRef.current = newFile.id;
+
+    hasUnsavedChangesRef.current = false;
+    setHasUnsavedChanges(false);
+    onSetStudioView('editor');
+    onShowDriveToast?.(`Created "${newProj.name}"`);
+  }, [projects, checkAndSaveBeforeAction, onSetStudioView, onShowDriveToast]);
 
   const handleAddFileToProject = useCallback((projectId?: string) => {
     // 1. Commit and save any pending changes on the currently open file FIRST
@@ -571,7 +616,8 @@ export function useHtmlProjects({
     // 2. Fetch the most up-to-date projects list from projectsRef.current, state, or storage
     let currentProjects = (projectsRef.current && projectsRef.current.length > 0) ? projectsRef.current : projects;
     if (!currentProjects || currentProjects.length === 0) {
-      currentProjects = loadLocalProjects(TEMPLATE_MATRICES);
+      const cachedUid = typeof window !== 'undefined' ? getCachedAuthUser()?.uid || null : null;
+      currentProjects = loadLocalProjects(TEMPLATE_MATRICES, cachedUid);
     }
 
     const resolvedTargetId = (typeof projectId === 'string' && projectId.trim() !== '')
@@ -597,13 +643,16 @@ export function useHtmlProjects({
     const title = `Note ${nextNum}`;
     const newFileId = `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newFileCode = createNewNoteTemplate(title);
+    const now = Date.now();
 
     const newFile: HtmlNoteItem = {
       id: newFileId,
       title,
       code: newFileCode,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
+      createdAt: now,
+      updatedAt: now,
+      localUpdatedAt: now,
+      _syncStatus: 'pending'
     };
 
     // 4. Synchronously update BOTH ref and state with functional updater so subsequent hooks and actions see the new file
@@ -618,29 +667,34 @@ export function useHtmlProjects({
           if (files.some((f) => f.id === newFile.id)) return p;
           return {
             ...p,
-            updatedAt: Date.now(),
+            updatedAt: now,
+            localUpdatedAt: now,
+            _syncStatus: 'pending' as const,
             files: [...files, newFile]
           };
         }
         return p;
       });
 
+      const effectiveUid = getEffectiveAuthUid();
       projectsRef.current = next;
-      saveLocalProjects(next, undefined, true);
-      recordHtmlProjectsUpdate(next, undefined, true);
-      queueFirestoreSync(next, true);
+      saveLocalProjects(next, effectiveUid, true);
+      const targetProj = next.find(p => p.id === actualProjId);
+      if (targetProj) {
+        saveSingleProjectToFirestore(targetProj, effectiveUid);
+      }
       return next;
     });
+
+    // Auto-expand this project
+    setExpandedProjects(prev => ({ ...prev, [actualProjId]: true }));
 
     // 5. Initialize file history stack for this new file
     fileHistoryMapRef.current[newFile.id] = { stack: [newFileCode], index: 0 };
     setHistoryStack([newFileCode]);
     setHistoryIndex(0);
 
-    // 6. Record note in cloud outbox
-    import('../../../lib/htmlNotesCloudSyncEngine').then(({ recordNoteSaveWithDriveOutbox }) => {
-      recordNoteSaveWithDriveOutbox(actualProjId, newFile);
-    });
+
 
     // 7. Activate and switch to the newly created file directly without wiping it out
     setActiveProjectId(actualProjId);
@@ -704,16 +758,16 @@ export function useHtmlProjects({
     projectsRef.current = updated;
     setProjects(updated);
     saveLocalProjects(updated, undefined, true);
-    recordHtmlProjectsUpdate(updated, undefined, true);
-    queueFirestoreSync(updated, true);
+    const savedProj = updated.find(p => p.id === actualProjId);
+    if (savedProj) {
+      saveSingleProjectToFirestore(savedProj, getEffectiveAuthUid());
+    }
 
     fileHistoryMapRef.current[newFile.id] = { stack: [newCode], index: 0 };
     setHistoryStack([newCode]);
     setHistoryIndex(0);
 
-    import('../../../lib/htmlNotesCloudSyncEngine').then(({ recordNoteSaveWithDriveOutbox }) => {
-      recordNoteSaveWithDriveOutbox(actualProjId, newFile);
-    });
+
 
     setActiveProjectId(actualProjId);
     activeProjectIdRef.current = actualProjId;
@@ -789,9 +843,11 @@ export function useHtmlProjects({
     projectsRef.current = updated;
     setProjects(updated);
     saveLocalProjects(updated);
-    recordHtmlProjectsUpdate(updated);
+    const targetProj = updated.find(p => p.id === projectId);
+    if (targetProj) {
+      saveSingleProjectToFirestore(targetProj, getEffectiveAuthUid());
+    }
     deleteHtmlFileFromManifest(projectId, fileId);
-    queueFirestoreSync(updated);
     deleteNoteFromCloud(projectId, fileId);
 
     if (activeFileId === fileId) {
@@ -886,22 +942,198 @@ export function useHtmlProjects({
   }, [renamingFileTitle, projects, activeProjectId, activeFileId]);
 
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const inputElement = e.target;
+    const file = inputElement.files?.[0];
     if (!file) return;
+
+    // Validate file extension and MIME type defensively
+    const fileName = file.name || '';
+    const lowerName = fileName.toLowerCase();
+    const isHtmlOrText = lowerName.endsWith('.html') || lowerName.endsWith('.htm') || lowerName.endsWith('.txt') || file.type.includes('html') || file.type.includes('text');
+
+    if (!isHtmlOrText) {
+      onShowDriveToast?.('Please upload a valid .html or .txt document file.');
+      inputElement.value = '';
+      return;
+    }
+
     const reader = new FileReader();
+
+    reader.onerror = () => {
+      onShowDriveToast?.(`Failed to read file "${fileName}".`);
+      inputElement.value = '';
+    };
+
     reader.onload = (event) => {
-      const content = event.target?.result as string;
-      if (content) {
-        const fileTitle = file.name.replace(/\.[^/.]+$/, '');
-        setTitle(fileTitle);
-        setCode(content);
-        updateCodeWithHistory(content);
+      try {
+        const rawContent = event.target?.result as string;
+        if (typeof rawContent !== 'string' || !rawContent.trim()) {
+          onShowDriveToast?.(`File "${fileName}" appears to be empty.`);
+          inputElement.value = '';
+          return;
+        }
+
+        // 1. Commit and save any pending changes on currently open file first
+        checkAndSaveBeforeAction();
+
+        // 2. Resolve target project without stale state
+        let currentProjects = (projectsRef.current && projectsRef.current.length > 0) ? projectsRef.current : projects;
+        if (!currentProjects || currentProjects.length === 0) {
+          const cachedUid = typeof window !== 'undefined' ? getCachedAuthUser()?.uid || null : null;
+          currentProjects = loadLocalProjects(TEMPLATE_MATRICES, cachedUid);
+        }
+
+        const resolvedTargetId = activeProjectIdRef.current || activeProjectId || (currentProjects.length > 0 ? currentProjects[0].id : '');
+        let targetProj = currentProjects.find(p => p.id === resolvedTargetId);
+        if (!targetProj && currentProjects.length > 0) {
+          targetProj = currentProjects[0];
+        }
+
+        // 3. Clean and prepare content with robust formatting and stable IDs
+        const sanitized = sanitizeAndRepairCode(rawContent);
+        const identifiedCode = ensureStableBlockIds(sanitized);
+
+        const baseTitle = fileName.replace(/\.[^/.]+$/, '').trim() || 'Imported Note';
+        const now = Date.now();
+        const newFileId = `file_${now}_${Math.random().toString(36).substring(2, 7)}`;
+
+        if (!targetProj || currentProjects.length === 0) {
+          // If no projects exist, create a new project hosting this imported note
+          const newProjId = `proj_${now}_${Math.random().toString(36).substring(2, 7)}`;
+          const newFile: HtmlNoteItem = {
+            id: newFileId,
+            title: baseTitle,
+            code: identifiedCode,
+            createdAt: now,
+            updatedAt: now,
+            localUpdatedAt: now,
+            _syncStatus: 'pending'
+          };
+          const newProj: HtmlProject = {
+            id: newProjId,
+            name: baseTitle,
+            createdAt: now,
+            updatedAt: now,
+            localUpdatedAt: now,
+            _syncStatus: 'pending',
+            files: [newFile]
+          };
+
+          const updated = [newProj, ...(currentProjects || [])];
+          const effectiveUid = getEffectiveAuthUid();
+          projectsRef.current = updated;
+          setProjects(updated);
+          saveLocalProjects(updated, effectiveUid, true);
+          recordHtmlProjectsUpdate(updated, effectiveUid, true);
+          queueFirestoreSync(updated, true);
+
+          import('../../../lib/htmlNotesCloudSyncEngine').then(({ recordNoteSaveWithDriveOutbox }) => {
+            recordNoteSaveWithDriveOutbox(newProj.id, newFile);
+          });
+
+          setExpandedProjects(prev => ({ ...prev, [newProj.id]: true }));
+          fileHistoryMapRef.current[newFile.id] = { stack: [identifiedCode], index: 0 };
+          setHistoryStack([identifiedCode]);
+          setHistoryIndex(0);
+
+          setActiveProjectId(newProj.id);
+          activeProjectIdRef.current = newProj.id;
+          setActiveFileId(newFile.id);
+          activeFileIdRef.current = newFile.id;
+          setTitle(newFile.title);
+          titleRef.current = newFile.title;
+          setCode(identifiedCode);
+          codeRef.current = identifiedCode;
+          loadedFileIdRef.current = newFile.id;
+
+          hasUnsavedChangesRef.current = false;
+          setHasUnsavedChanges(false);
+          onSetStudioView('editor');
+          onShowDriveToast?.(`Imported "${baseTitle}" as new project.`);
+          return;
+        }
+
+        // 4. In existing project: Calculate unique title to prevent collisions
+        const existingTitles = new Set((targetProj.files || []).map(f => f.title.toLowerCase()));
+        let uniqueTitle = baseTitle;
+        if (existingTitles.has(uniqueTitle.toLowerCase())) {
+          let counter = 1;
+          while (existingTitles.has(`${baseTitle} (${counter})`.toLowerCase())) {
+            counter++;
+          }
+          uniqueTitle = `${baseTitle} (${counter})`;
+        }
+
+        // 5. Create a brand-new, isolated file entry alongside existing files
+        const newFile: HtmlNoteItem = {
+          id: newFileId,
+          title: uniqueTitle,
+          code: identifiedCode,
+          createdAt: now,
+          updatedAt: now,
+          localUpdatedAt: now,
+          _syncStatus: 'pending'
+        };
+
+        const targetProjId = targetProj.id;
+        const updated = currentProjects.map((p) => {
+          if (p.id === targetProjId) {
+            return {
+              ...p,
+              updatedAt: now,
+              localUpdatedAt: now,
+              _syncStatus: 'pending' as const,
+              files: [...(p.files || []), newFile]
+            };
+          }
+          return p;
+        });
+
+        const effectiveUid = getEffectiveAuthUid();
+        projectsRef.current = updated;
+        setProjects(updated);
+        saveLocalProjects(updated, effectiveUid, true);
+        recordHtmlProjectsUpdate(updated, effectiveUid, true);
+        queueFirestoreSync(updated, true);
+
+        // 6. Record in Cloud Sync Engine Outbox
+        import('../../../lib/htmlNotesCloudSyncEngine').then(({ recordNoteSaveWithDriveOutbox }) => {
+          recordNoteSaveWithDriveOutbox(targetProjId, newFile);
+        });
+
+        // 7. Auto-expand the project in file lists
+        setExpandedProjects(prev => ({ ...prev, [targetProjId]: true }));
+
+        // 8. Initialize file history stack for this new file
+        fileHistoryMapRef.current[newFile.id] = { stack: [identifiedCode], index: 0 };
+        setHistoryStack([identifiedCode]);
+        setHistoryIndex(0);
+
+        // 9. Safely switch to the newly created file without touching existing file buffers
+        setActiveProjectId(targetProjId);
+        activeProjectIdRef.current = targetProjId;
+        setActiveFileId(newFile.id);
+        activeFileIdRef.current = newFile.id;
+        setTitle(newFile.title);
+        titleRef.current = newFile.title;
+        setCode(identifiedCode);
+        codeRef.current = identifiedCode;
+        loadedFileIdRef.current = newFile.id;
+
+        hasUnsavedChangesRef.current = false;
+        setHasUnsavedChanges(false);
         onSetStudioView('editor');
+        onShowDriveToast?.(`Imported "${uniqueTitle}" into "${targetProj.name}".`);
+      } catch (err) {
+        console.error('Error importing HTML file:', err);
+        onShowDriveToast?.('Failed to import HTML file.');
+      } finally {
+        inputElement.value = '';
       }
     };
+
     reader.readAsText(file);
-    e.target.value = '';
-  }, [updateCodeWithHistory, onSetStudioView]);
+  }, [projects, activeProjectId, checkAndSaveBeforeAction, onSetStudioView, onShowDriveToast]);
 
   const handleExportHtml = useCallback(() => {
     const safeName = (title || 'note').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');

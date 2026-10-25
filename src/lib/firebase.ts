@@ -61,8 +61,26 @@ try {
   setLogLevel('silent');
 } catch (e) {}
 
+const QUOTA_STORAGE_KEY = 'mockmc_firestore_quota_exhausted_date';
+
+// Initialize quota exhaustion state from localStorage to protect unsynced data immediately on boot
 let globalQuotaExceeded = false;
 let quotaExceededDate: string | null = null;
+
+if (typeof window !== 'undefined' && window.localStorage) {
+  try {
+    const savedDate = localStorage.getItem(QUOTA_STORAGE_KEY);
+    const today = new Date().toDateString();
+    if (savedDate && savedDate === today) {
+      globalQuotaExceeded = true;
+      quotaExceededDate = savedDate;
+    } else if (savedDate && savedDate !== today) {
+      localStorage.removeItem(QUOTA_STORAGE_KEY);
+      globalQuotaExceeded = false;
+      quotaExceededDate = null;
+    }
+  } catch {}
+}
 
 export function isGlobalQuotaExceeded(): boolean {
   return globalQuotaExceeded;
@@ -72,6 +90,11 @@ export function setGlobalQuotaExceeded(val: boolean): void {
   globalQuotaExceeded = val;
   if (val) {
     quotaExceededDate = new Date().toDateString();
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem(QUOTA_STORAGE_KEY, quotaExceededDate);
+      } catch {}
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('firestore-quota-exceeded', {
         detail: { error: 'Quota limit exceeded' }
@@ -79,12 +102,22 @@ export function setGlobalQuotaExceeded(val: boolean): void {
     }
   } else {
     quotaExceededDate = null;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.removeItem(QUOTA_STORAGE_KEY);
+      } catch {}
+    }
   }
 }
 
 export function resetGlobalQuotaExceeded(): void {
   globalQuotaExceeded = false;
   quotaExceededDate = null;
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.removeItem(QUOTA_STORAGE_KEY);
+    } catch {}
+  }
   try {
     setLogLevel('silent');
   } catch (e) {}
@@ -814,6 +847,114 @@ export function subscribeUserProfile(userId: string, onProfileChange: (data: Use
 }
 
 // ==========================================
+// User Sync Beacon (Zero-Cost Sync Gatekeeper)
+// ==========================================
+export interface UserSyncBeacon {
+  userId: string;
+  testsRev?: number;
+  attemptsRev?: number;
+  notesRev?: number;
+  chatsRev?: number;
+  profileRev?: number;
+  updatedAt: string;
+}
+
+export function getUserSyncBeaconDocRef(userId: string) {
+  return doc(db, 'users', userId, 'sync_beacon', 'status');
+}
+
+export async function getUserSyncBeacon(userId: string): Promise<UserSyncBeacon | null> {
+  if (isOfflineLocalOnlyMode() || !userId || userId === 'anonymous' || userId === 'guest-user' || isGlobalQuotaExceeded()) {
+    return null;
+  }
+  try {
+    const snap = await getDoc(getUserSyncBeaconDocRef(userId));
+    if (snap.exists()) {
+      firestoreTelemetry.record({
+        type: 'READ',
+        collection: 'users',
+        path: `users/${userId}/sync_beacon/status`,
+        operation: 'getDoc',
+        docCount: 1,
+        caller: 'Get User Sync Beacon',
+      });
+      return snap.data() as UserSyncBeacon;
+    }
+  } catch (e) {
+    console.warn('Failed to get user sync beacon:', e);
+  }
+  return null;
+}
+
+export function subscribeUserSyncBeacon(
+  userId: string,
+  onUpdate: (beacon: UserSyncBeacon | null) => void
+): Unsubscribe {
+  if (isOfflineLocalOnlyMode() || !userId || userId === 'anonymous' || userId === 'guest-user') {
+    onUpdate(null);
+    return () => {};
+  }
+
+  try {
+    const beaconRef = getUserSyncBeaconDocRef(userId);
+    return onSnapshot(beaconRef, (snap) => {
+      firestoreTelemetry.record({
+        type: 'STREAM_DELTA',
+        collection: 'users',
+        path: `users/${userId}/sync_beacon/status`,
+        operation: 'onSnapshot',
+        docCount: snap.exists() ? 1 : 0,
+        caller: 'Live User Sync Beacon Stream',
+      });
+      if (snap.exists()) {
+        onUpdate(snap.data() as UserSyncBeacon);
+      } else {
+        onUpdate(null);
+      }
+    }, (err) => {
+      console.warn('Sync beacon listener notice:', err?.message);
+    });
+  } catch (err) {
+    console.warn('Failed to attach sync beacon listener:', err);
+    return () => {};
+  }
+}
+
+export async function updateUserSyncBeacon(
+  userId: string,
+  updates: Partial<UserSyncBeacon>,
+  batch?: any
+): Promise<void> {
+  if (!userId || userId === 'anonymous' || userId === 'guest-user' || isOfflineLocalOnlyMode()) return;
+  const beaconRef = getUserSyncBeaconDocRef(userId);
+  const payload: Partial<UserSyncBeacon> = {
+    ...updates,
+    userId,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (batch) {
+    batch.set(beaconRef, payload, { merge: true });
+    return;
+  }
+
+  if (isGlobalQuotaExceeded()) return;
+  try {
+    await setDoc(beaconRef, payload, { merge: true });
+    firestoreTelemetry.record({
+      type: 'WRITE',
+      collection: 'users',
+      path: `users/${userId}/sync_beacon/status`,
+      operation: 'setDoc',
+      data: payload,
+      caller: 'Update User Sync Beacon',
+    });
+  } catch (e) {
+    console.warn('Failed to update sync beacon:', e);
+  }
+}
+
+// ==========================================
 // Tests CRUD & Real-Time Sync
 // ==========================================
 export async function saveTestToFirestore(test: MathTest, overrideAuthorId?: string): Promise<void> {
@@ -1441,148 +1582,36 @@ const chatSaveDebounceTimers = new Map<string, any>();
 const pendingChatSaves = new Map<string, { userId: string; sessions: any[] }>();
 
 /**
- * Directly commits a compacted single-document chat archive to `chat_archives/{userId}`.
+ * Completely deprecated & disarmed: chat_archives collection is deleted and replaced by
+ * subcollection users/{userId}/chatSessions/{sessionId}. (Zero network writes)
  */
-export async function saveChatArchiveToFirestoreDirect(userId: string, sessions?: any[]): Promise<void> {
-  if (isOfflineLocalOnlyMode() || isGlobalQuotaExceeded() || !userId || userId === 'anonymous' || userId === 'guest-user') return;
-  const start = performance.now();
-  const path = `chat_archives/${userId}`;
-
-  try {
-    const rawList = Array.isArray(sessions) && sessions.length > 0 ? sessions : loadScopedChatSessions(userId);
-    let compactSessions = (Array.isArray(rawList) ? rawList : [])
-      .filter((s: any) => s && s.id)
-      .map((s: any) => {
-        if (s.cloudSyncEnabled === true) {
-          return toCompactChatSession({ ...s, cloudSyncEnabled: true });
-        }
-        return {
-          id: s.id,
-          title: s.title || 'New Conversation',
-          createdAt: s.createdAt || Date.now(),
-          updatedAt: s.updatedAt || Date.now(),
-          modelTier: s.modelTier || 'gemini-3.8-flash',
-          cloudSyncEnabled: false,
-          messages: []
-        };
-      });
-
-    // Volumetric Safety Guard: Ensure cloud document never exceeds 750 KB (well below Firestore's 1MB limit)
-    // Note: IndexedDB retains 100% of all sessions & messages locally without limit.
-    const estimatedBytes = JSON.stringify(compactSessions).length;
-    if (estimatedBytes > 700000) {
-      // Sort sessions by updatedAt descending (newest first)
-      compactSessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      // Cap at 25 most recent active sessions for cloud backup
-      compactSessions = compactSessions.slice(0, 25);
-      // Trim per-session message tail to most recent 35 messages
-      compactSessions = compactSessions.map((s) => {
-        if (Array.isArray(s.messages) && s.messages.length > 35) {
-          return {
-            ...s,
-            messages: s.messages.slice(-35)
-          };
-        }
-        return s;
-      });
-    }
-
-    const archiveDocRef = doc(db, 'chat_archives', userId);
-    const archivePayload = {
-      userId,
-      sessions: compactSessions,
-      totalSessions: compactSessions.length,
-      updatedAt: new Date().toISOString(),
-      clientVersion: 'v3.0.0',
-    };
-
-    const sanitized = sanitizeForFirestore(archivePayload);
-    await setDoc(archiveDocRef, sanitized, { merge: true });
-    const latency = Math.round(performance.now() - start);
-
-    firestoreTelemetry.record({
-      type: 'WRITE',
-      collection: 'chat_archives',
-      path,
-      operation: 'setDoc',
-      durationMs: latency,
-      data: { totalSessions: compactSessions.length, userId },
-      caller: 'Save Chat Archive (Single Document)',
-      statusCode: '200 OK',
-    });
-  } catch (error) {
-    const latency = Math.round(performance.now() - start);
-    firestoreTelemetry.record({
-      type: 'WRITE',
-      collection: 'chat_archives',
-      path,
-      operation: 'setDoc',
-      durationMs: latency,
-      caller: 'Save Chat Archive',
-      status: 'error',
-      error: String(error),
-    });
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+export async function saveChatArchiveToFirestoreDirect(_userId: string, _sessions?: any[]): Promise<void> {
+  return;
 }
 
 /**
- * Reads single-document chat archive from `chat_archives/{userId}` on 1-pass entry.
+ * Completely deprecated & disarmed: chat_archives collection is deleted and replaced by
+ * subcollection users/{userId}/chatSessions/{sessionId}. (Zero network reads)
  */
-export async function fetchChatArchiveFromFirestore(userId: string): Promise<any[] | null> {
-  if (isOfflineLocalOnlyMode() || isGlobalQuotaExceeded() || !userId || userId === 'anonymous' || userId === 'guest-user') return null;
-  const start = performance.now();
-  const path = `chat_archives/${userId}`;
+export async function fetchChatArchiveFromFirestore(_userId: string): Promise<any[] | null> {
+  return null;
+}
 
+/**
+ * Purges the deprecated legacy `chat_archives/{userId}` document from Firestore
+ * so the old collection is removed from the Firestore database.
+ */
+export async function deleteLegacyChatArchiveDoc(userId: string): Promise<boolean> {
+  if (isOfflineLocalOnlyMode() || isGlobalQuotaExceeded() || !userId || userId === 'anonymous' || userId === 'guest-user') {
+    return false;
+  }
   try {
     const archiveDocRef = doc(db, 'chat_archives', userId);
-    const snap = await getDoc(archiveDocRef);
-    const latency = Math.round(performance.now() - start);
-
-    if (snap.exists()) {
-      const data = snap.data() as any;
-      const remoteSessions = Array.isArray(data.sessions) ? data.sessions : [];
-
-      firestoreTelemetry.record({
-        type: 'READ',
-        collection: 'chat_archives',
-        path,
-        operation: 'getDoc',
-        docCount: 1,
-        durationMs: latency,
-        data: { totalSessions: remoteSessions.length, userId },
-        caller: 'Fetch Chat Archive (Single Document Entry Hydration)',
-        statusCode: '200 OK',
-      });
-
-      return remoteSessions;
-    } else {
-      firestoreTelemetry.record({
-        type: 'READ',
-        collection: 'chat_archives',
-        path,
-        operation: 'getDoc',
-        docCount: 0,
-        durationMs: latency,
-        caller: 'Fetch Chat Archive (Not Found)',
-        statusCode: '404 NOT_FOUND',
-      });
-      return null;
-    }
-  } catch (error) {
-    const latency = Math.round(performance.now() - start);
-    firestoreTelemetry.record({
-      type: 'READ',
-      collection: 'chat_archives',
-      path,
-      operation: 'getDoc',
-      durationMs: latency,
-      caller: 'Fetch Chat Archive',
-      status: 'error',
-      error: String(error),
-    });
-    handleFirestoreError(error, OperationType.GET, path);
-    return null;
+    await deleteDoc(archiveDocRef);
+    return true;
+  } catch (err) {
+    // Silently ignore if already removed or permission denied
+    return false;
   }
 }
 
@@ -1591,58 +1620,194 @@ export async function flushPendingChatSaves(_userId?: string): Promise<void> {
 }
 
 /**
- * Save chat session to Firestore via single-document archive.
+ * Saves strictly ONE single chat session document to Firestore at `users/{userId}/chatSessions/{sessionId}`.
+ * Modeled after HTML Notes Studio single project save (hits exactly 1 Firestore write).
  */
-export async function saveChatSessionToFirestore(userId: string, _sessionOrSessions: any, _forceImmediate = false): Promise<void> {
-  if (!userId || userId === 'anonymous' || userId === 'guest-user' || isOfflineLocalOnlyMode() || isGlobalQuotaExceeded()) return;
-  await saveChatArchiveToFirestoreDirect(userId);
-}
-
-export async function deleteChatSessionFromFirestore(userId: string, _sessionId: string): Promise<void> {
-  if (!userId || userId === 'anonymous' || userId === 'guest-user' || isOfflineLocalOnlyMode() || isGlobalQuotaExceeded()) return;
-  await saveChatArchiveToFirestoreDirect(userId);
-}
-
-export function subscribeUserChatSessionsFromFirestore(
-  userId: string,
-  onSessionsChange: (sessions: any[]) => void
-): Unsubscribe {
+export async function saveSingleChatSessionToFirestoreDirect(userId: string, session: any): Promise<boolean> {
   if (isOfflineLocalOnlyMode() || isGlobalQuotaExceeded() || !userId || userId === 'anonymous' || userId === 'guest-user') {
-    onSessionsChange([]);
-    return () => {};
+    return false;
   }
+  if (!session || !session.id) return false;
+
+  const start = performance.now();
+  const path = `users/${userId}/chatSessions/${session.id}`;
 
   try {
-    const archiveDocRef = doc(db, 'chat_archives', userId);
-    return onSnapshot(
-      archiveDocRef,
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data() as any;
-          const remoteSessions = Array.isArray(data?.sessions) ? data.sessions : [];
-          firestoreTelemetry.record({
-            type: 'STREAM_DELTA',
-            collection: 'chat_archives',
-            path: `chat_archives/${userId}`,
-            operation: 'onSnapshot',
-            docCount: 1,
-            caller: 'Real-time Chat Archive Listener',
-            statusCode: '200 OK',
-          });
-          onSessionsChange(remoteSessions);
-        } else {
-          onSessionsChange([]);
-        }
-      },
-      (err) => {
-        console.warn('Chat archive snapshot listener notice:', err?.message);
-        handleFirestoreError(err, OperationType.GET, `chat_archives/${userId}`);
-      }
-    );
-  } catch (err) {
-    console.warn('Failed to attach chat archive snapshot listener:', err);
-    return () => {};
+    const compact = toCompactChatSession(session);
+    const cleanSession = {
+      id: compact.id,
+      userId,
+      title: compact.title || 'New Conversation',
+      createdAt: compact.createdAt || Date.now(),
+      updatedAt: compact.updatedAt || Date.now(),
+      modelTier: compact.modelTier || 'gemini-3.1-flash-lite',
+      messages: Array.isArray(compact.messages) ? compact.messages : [],
+      stagedQuestions: Array.isArray(compact.stagedQuestions) ? compact.stagedQuestions : [],
+      sessionDocuments: Array.isArray(compact.sessionDocuments) ? compact.sessionDocuments : [],
+      clientVersion: 'v4.0.0',
+    };
+
+    const sessionDocRef = doc(db, 'users', userId, 'chatSessions', session.id);
+    const sanitized = sanitizeForFirestore(cleanSession);
+    await setDoc(sessionDocRef, sanitized, { merge: true });
+
+    const latency = Math.round(performance.now() - start);
+    firestoreTelemetry.record({
+      type: 'WRITE',
+      collection: 'chatSessions',
+      path,
+      operation: 'setDoc',
+      durationMs: latency,
+      data: { sessionId: session.id, messageCount: cleanSession.messages.length },
+      caller: 'Save Single Chat Session (Per-Document)',
+      statusCode: '200 OK',
+    });
+    return true;
+  } catch (error) {
+    const latency = Math.round(performance.now() - start);
+    firestoreTelemetry.record({
+      type: 'WRITE',
+      collection: 'chatSessions',
+      path,
+      operation: 'setDoc',
+      durationMs: latency,
+      caller: 'Save Single Chat Session',
+      status: 'error',
+      error: String(error),
+    });
+    handleFirestoreError(error, OperationType.WRITE, path);
+    return false;
   }
+}
+
+/**
+ * Deletes strictly ONE single chat session document from `users/{userId}/chatSessions/{sessionId}`.
+ */
+export async function deleteSingleChatSessionFromFirestoreDirect(userId: string, sessionId: string): Promise<boolean> {
+  if (isOfflineLocalOnlyMode() || isGlobalQuotaExceeded() || !userId || userId === 'anonymous' || userId === 'guest-user') {
+    return false;
+  }
+  if (!sessionId) return false;
+
+  const start = performance.now();
+  const path = `users/${userId}/chatSessions/${sessionId}`;
+
+  try {
+    const sessionDocRef = doc(db, 'users', userId, 'chatSessions', sessionId);
+    await deleteDoc(sessionDocRef);
+
+    const latency = Math.round(performance.now() - start);
+    firestoreTelemetry.record({
+      type: 'WRITE',
+      collection: 'chatSessions',
+      path,
+      operation: 'deleteDoc',
+      durationMs: latency,
+      data: { sessionId },
+      caller: 'Delete Single Chat Session',
+      statusCode: '200 OK',
+    });
+    return true;
+  } catch (error) {
+    const latency = Math.round(performance.now() - start);
+    firestoreTelemetry.record({
+      type: 'WRITE',
+      collection: 'chatSessions',
+      path,
+      operation: 'deleteDoc',
+      durationMs: latency,
+      caller: 'Delete Single Chat Session',
+      status: 'error',
+      error: String(error),
+    });
+    handleFirestoreError(error, OperationType.DELETE, path);
+    return false;
+  }
+}
+
+/**
+ * Fetches user chat sessions from per-session subcollection `users/{userId}/chatSessions`.
+ * Falls back to legacy `chat_archives/{userId}` if per-session subcollection is not yet populated.
+ */
+export async function fetchUserChatSessionsFromFirestoreDirect(userId: string, limitCount = 30): Promise<any[] | null> {
+  if (isOfflineLocalOnlyMode() || isGlobalQuotaExceeded() || !userId || userId === 'anonymous' || userId === 'guest-user') {
+    return null;
+  }
+
+  const start = performance.now();
+  const path = `users/${userId}/chatSessions?limit=${limitCount}`;
+
+  try {
+    const chatColRef = collection(db, 'users', userId, 'chatSessions');
+    const q = query(chatColRef, limit(limitCount));
+    const snap = await getDocs(q);
+
+    if (!snap.empty) {
+      const sessions = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+      const latency = Math.round(performance.now() - start);
+
+      firestoreTelemetry.record({
+        type: 'READ',
+        collection: 'chatSessions',
+        path,
+        operation: 'getDocs',
+        docCount: sessions.length,
+        durationMs: latency,
+        caller: 'Fetch User Chat Sessions (Per-Document Subcollection)',
+        statusCode: '200 OK',
+      });
+      return sessions;
+    }
+
+    // Purge deprecated legacy chat_archives document if present
+    deleteLegacyChatArchiveDoc(userId).catch(() => {});
+    return null;
+  } catch (error) {
+    const latency = Math.round(performance.now() - start);
+    firestoreTelemetry.record({
+      type: 'READ',
+      collection: 'chatSessions',
+      path,
+      operation: 'getDocs',
+      durationMs: latency,
+      caller: 'Fetch User Chat Sessions',
+      status: 'error',
+      error: String(error),
+    });
+    handleFirestoreError(error, OperationType.GET, path);
+    return null;
+  }
+}
+
+/**
+ * Save chat session to Firestore (per-document save).
+ */
+export async function saveChatSessionToFirestore(userId: string, sessionOrSessions: any, _forceImmediate = false): Promise<void> {
+  if (!userId || userId === 'anonymous' || userId === 'guest-user' || isOfflineLocalOnlyMode() || isGlobalQuotaExceeded()) return;
+  if (sessionOrSessions && sessionOrSessions.id) {
+    await saveSingleChatSessionToFirestoreDirect(userId, sessionOrSessions);
+  }
+}
+
+export async function deleteChatSessionFromFirestore(userId: string, sessionId: string): Promise<void> {
+  if (!userId || userId === 'anonymous' || userId === 'guest-user' || isOfflineLocalOnlyMode() || isGlobalQuotaExceeded()) return;
+  if (sessionId) {
+    await deleteSingleChatSessionFromFirestoreDirect(userId, sessionId);
+  }
+}
+
+/**
+ * @deprecated Real-time active Firestore listener is eliminated in the local-first architecture.
+ * Chat sessions are managed 100% locally during active conversation mode (0 reads, 0 writes),
+ * and flushed strictly as a single compacted document on close/leave/exit.
+ * Returns a no-op unsubscribe without attaching onSnapshot.
+ */
+export function subscribeUserChatSessionsFromFirestore(
+  _userId: string,
+  onSessionsChange: (sessions: any[]) => void
+): Unsubscribe {
+  onSessionsChange([]);
+  return () => {};
 }
 
 export async function saveBookmarkToFirestore(userId: string, bookmark: any): Promise<void> {

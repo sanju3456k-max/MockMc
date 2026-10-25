@@ -49,6 +49,7 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
     padding: 0 !important;
     width: 100% !important;
     background: ${isDark ? '#0b0c10' : '#e2e8f0'} !important;
+    touch-action: pan-x pan-y !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     -webkit-font-smoothing: antialiased !important;
@@ -218,7 +219,13 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
       font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, KaTeX_Math, sans-serif !important;
     }
     .a4-sheet .katex .mfrac .vlist-t .vlist-r .vlist > span {
-      font-size: 0.92em;
+      font-size: 1em !important;
+    }
+    .a4-sheet .katex .sizing {
+      font-size: 1em !important;
+    }
+    .a4-sheet .katex .mop.op-limits > .vlist-t {
+      font-size: 1em !important;
     }
     .a4-sheet .katex .frac-line {
       border-bottom-width: 1.2px !important;
@@ -236,13 +243,13 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
     }
     
     .a4-sheet {
-      color: #0f172a !important;
+      color: inherit;
     }
     .a4-sheet h1, .a4-sheet h2, .a4-sheet h3, .a4-sheet h4, .a4-sheet h5, .a4-sheet h6 {
-      color: #0f172a !important;
+      color: inherit;
     }
     .a4-sheet p {
-      color: #0f172a !important;
+      color: inherit;
     }
     
     .a4-sheet details, .a4-sheet details.dropdown-box {
@@ -310,7 +317,7 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
   @media print {
     @page {
       size: ${isSlideMode ? 'A4 landscape' : 'A4 portrait'};
-      margin: 0 !important;
+      margin: 0;
     }
     html, body {
       background: white !important;
@@ -355,7 +362,13 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
       white-space: normal !important;
     }
     .katex .mfrac .vlist-t .vlist-r .vlist > span {
-      font-size: 0.92em;
+      font-size: 1em !important;
+    }
+    .katex .sizing {
+      font-size: 1em !important;
+    }
+    .katex .mop.op-limits > .vlist-t {
+      font-size: 1em !important;
     }
     .a4-sheet {
       position: relative !important;
@@ -506,8 +519,17 @@ export function getFluidPrintSpecStyles(options: FluidStylesOptions): string {
   html, body {
     background: ${isDark ? '#14161d' : '#ffffff'} !important;
     color: ${isDark ? '#e6edf3' : 'inherit'} !important;
+    touch-action: pan-x pan-y !important;
   }
 
+  .katex-scroll-wrapper {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: thin !important;
+    margin: 0.6em 0 !important;
+  }
   .katex-display {
     max-width: 100% !important;
     overflow-x: auto !important;
@@ -524,10 +546,19 @@ export function getFluidPrintSpecStyles(options: FluidStylesOptions): string {
     border-radius: 4px !important;
   }
   .katex {
-    font-size: 1.05em !important;
+    font-size: 1.08em !important;
     line-height: 1.2 !important;
     text-indent: 0 !important;
     white-space: nowrap !important;
+  }
+  .katex .mfrac .vlist-t .vlist-r .vlist > span {
+    font-size: 1em !important;
+  }
+  .katex .sizing {
+    font-size: 1em !important;
+  }
+  .katex .mop.op-limits > .vlist-t {
+    font-size: 1em !important;
   }
   .katex .katex-html {
     overflow-x: auto !important;
@@ -636,10 +667,11 @@ export function getFluidPrintSpecStyles(options: FluidStylesOptions): string {
   @media print {
     @page {
       size: A4 portrait;
-      margin-top: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '8mm'} !important;
-      margin-bottom: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '8mm'} !important;
-      margin-right: ${sideMarginMm > 0 ? `${sideMarginMm}mm` : '5mm'} !important;
-      margin-left: ${totalLeftMarginMm > 0 ? `${totalLeftMarginMm}mm` : '5mm'} !important;
+      margin: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '12mm'} ${sideMarginMm > 0 ? `${sideMarginMm}mm` : '10mm'} ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '12mm'} ${totalLeftMarginMm > 0 ? `${totalLeftMarginMm}mm` : (sideMarginMm > 0 ? `${sideMarginMm}mm` : '10mm')};
+      margin-top: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '12mm'};
+      margin-bottom: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '12mm'};
+      margin-right: ${sideMarginMm > 0 ? `${sideMarginMm}mm` : '10mm'};
+      margin-left: ${totalLeftMarginMm > 0 ? `${totalLeftMarginMm}mm` : (sideMarginMm > 0 ? `${sideMarginMm}mm` : '10mm')};
     }
     html, body {
       background: white !important;
@@ -696,7 +728,7 @@ export function getFluidPrintSpecStyles(options: FluidStylesOptions): string {
     zoom: var(--paper-zoom, 1) !important;
     line-height: 1.68 !important;
     letter-spacing: -0.011em !important;
-    color: ${isDark ? '#e2e8f0' : '#1e293b'} !important;
+    color: ${isDark ? '#e2e8f0' : '#1e293b'};
     -webkit-font-smoothing: antialiased !important;
     -moz-osx-font-smoothing: grayscale !important;
     text-rendering: optimizeLegibility !important;
@@ -718,7 +750,7 @@ export function getFluidPrintSpecStyles(options: FluidStylesOptions): string {
     font-weight: 800 !important;
     letter-spacing: -0.025em !important;
     line-height: 1.28 !important;
-    color: ${isDark ? '#f8fafc' : '#0f172a'} !important;
+    color: ${isDark ? '#f8fafc' : 'inherit'};
     margin-top: 1.3em !important;
     margin-bottom: 0.5em !important;
     word-wrap: break-word !important;
@@ -835,10 +867,11 @@ export function getFluidPrintSpecStyles(options: FluidStylesOptions): string {
 
   @page {
     size: A4 portrait;
-    margin-top: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '8mm'} !important;
-    margin-bottom: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '8mm'} !important;
-    margin-right: ${sideMarginMm > 0 ? `${sideMarginMm}mm` : '5mm'} !important;
-    margin-left: ${totalLeftMarginMm > 0 ? `${totalLeftMarginMm}mm` : '5mm'} !important;
+    margin: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '12mm'} ${sideMarginMm > 0 ? `${sideMarginMm}mm` : '10mm'} ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '12mm'} ${totalLeftMarginMm > 0 ? `${totalLeftMarginMm}mm` : (sideMarginMm > 0 ? `${sideMarginMm}mm` : '10mm')};
+    margin-top: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '12mm'};
+    margin-bottom: ${verticalMarginMm > 0 ? `${verticalMarginMm}mm` : '12mm'};
+    margin-right: ${sideMarginMm > 0 ? `${sideMarginMm}mm` : '10mm'};
+    margin-left: ${totalLeftMarginMm > 0 ? `${totalLeftMarginMm}mm` : (sideMarginMm > 0 ? `${sideMarginMm}mm` : '10mm')};
   }
 
   @media print {
@@ -1048,18 +1081,19 @@ export function getDocumentPrintSpecStyles(options: DocumentPrintSpecOptions = {
     totalLeftMarginMm = 10
   } = options;
 
-  const vMargin = verticalMarginMm > 0 ? verticalMarginMm : 12;
-  const sMargin = sideMarginMm > 0 ? sideMarginMm : 10;
-  const lMargin = totalLeftMarginMm > 0 ? totalLeftMarginMm : sMargin;
+  const vMargin = typeof verticalMarginMm === 'number' && verticalMarginMm >= 0 ? verticalMarginMm : 12;
+  const sMargin = typeof sideMarginMm === 'number' && sideMarginMm >= 0 ? sideMarginMm : 10;
+  const lMargin = typeof totalLeftMarginMm === 'number' && totalLeftMarginMm >= 0 ? totalLeftMarginMm : sMargin;
 
   return `
 <style id="studio-document-print-spec">
   @page {
     size: A4 portrait;
-    margin-top: ${vMargin}mm !important;
-    margin-bottom: ${vMargin}mm !important;
-    margin-left: ${lMargin}mm !important;
-    margin-right: ${sMargin}mm !important;
+    margin: ${vMargin}mm ${sMargin}mm ${vMargin}mm ${lMargin}mm;
+    margin-top: ${vMargin}mm;
+    margin-bottom: ${vMargin}mm;
+    margin-left: ${lMargin}mm;
+    margin-right: ${sMargin}mm;
   }
 
   *, *::before, *::after {
@@ -1068,6 +1102,9 @@ export function getDocumentPrintSpecStyles(options: DocumentPrintSpecOptions = {
     outline: none !important;
     outline-offset: 0 !important;
     -webkit-tap-highlight-color: transparent !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 
   .studio-active-selected-element,
@@ -1081,17 +1118,23 @@ export function getDocumentPrintSpecStyles(options: DocumentPrintSpecOptions = {
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
-    color: #0f172a !important;
-    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
-    font-size: ${fontSizePx ? `${fontSizePx}px` : '10.5pt'} !important;
-    line-height: 1.55 !important;
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: ${fontSizePx ? `${fontSizePx}px` : '10.5pt'};
+    line-height: 1.55;
     print-color-adjust: exact !important;
     -webkit-print-color-adjust: exact !important;
+    color-adjust: exact !important;
     text-rendering: optimizeLegibility !important;
     -webkit-font-smoothing: antialiased !important;
   }
 
-  /* Table Architecture for PDF & Print */
+  .print-document-content {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Table Architecture for PDF & Print - Natural Continuous Flow */
   table {
     display: table !important;
     width: 100% !important;
@@ -1099,16 +1142,26 @@ export function getDocumentPrintSpecStyles(options: DocumentPrintSpecOptions = {
     border-collapse: collapse !important;
     page-break-inside: auto !important;
     break-inside: auto !important;
+    overflow: visible !important;
     margin-top: 8px !important;
     margin-bottom: 12px !important;
+    box-shadow: none !important;
   }
 
   thead {
     display: table-header-group !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   tfoot {
     display: table-footer-group !important;
+  }
+
+  tbody {
+    display: table-row-group !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
   }
 
   tr {
@@ -1117,68 +1170,74 @@ export function getDocumentPrintSpecStyles(options: DocumentPrintSpecOptions = {
   }
 
   table th, table td {
-    padding: 7px 10px !important;
-    font-size: ${fontSizePx ? `${Math.max(fontSizePx - 2, 11)}px` : '9.5pt'} !important;
-    line-height: 1.45 !important;
+    padding: 7px 10px;
+    font-size: ${fontSizePx ? `${Math.max(fontSizePx - 2, 11)}px` : '9.5pt'};
+    line-height: 1.45;
     resize: none !important;
     overflow: visible !important;
-    vertical-align: top !important;
-    box-sizing: border-box !important;
-    word-break: break-word !important;
-    border: 1px solid #cbd5e1 !important;
+    vertical-align: top;
+    box-sizing: border-box;
+    word-break: break-word;
+    border: 1px solid #cbd5e1;
   }
 
   table th {
-    background-color: #f1f5f9 !important;
-    color: #0f172a !important;
-    font-weight: 700 !important;
-    text-align: left !important;
+    font-weight: 700;
   }
 
-  table th:first-child,
-  table td:first-child {
-    white-space: nowrap !important;
-    min-width: 55px !important;
-    text-align: center !important;
-  }
-
-  /* Headings with orphan protection */
+  /* Headings with orphan protection (Preserve Colors) */
   h1, h2, h3, h4, h5, h6 {
-    page-break-after: avoid !important;
-    break-after: avoid !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    color: #0f172a !important;
+    page-break-after: avoid;
+    break-after: avoid;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   h1 {
-    font-size: 1.5rem !important;
-    font-weight: 800 !important;
-    margin-top: 0 !important;
-    margin-bottom: 8px !important;
-    padding-bottom: 4px !important;
-    border-bottom: 1.5px solid #e2e8f0 !important;
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin-top: 0;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1.5px solid #e2e8f0;
   }
 
   h2 {
-    font-size: 1.25rem !important;
-    font-weight: 700 !important;
-    margin-top: 14px !important;
-    margin-bottom: 6px !important;
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-top: 14px;
+    margin-bottom: 6px;
   }
 
   h3 {
-    font-size: 1.1rem !important;
-    font-weight: 600 !important;
-    margin-top: 10px !important;
-    margin-bottom: 4px !important;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 10px;
+    margin-bottom: 4px;
   }
 
   p {
-    margin-top: 0 !important;
-    margin-bottom: 6px !important;
-    orphans: 3 !important;
-    widows: 3 !important;
+    margin-top: 0;
+    margin-bottom: 6px;
+    orphans: 2;
+    widows: 2;
+    page-break-inside: auto;
+    break-inside: auto;
+  }
+
+  /* Section Containers - Prevent pushing entire sections */
+  section, article, main, .section, .content-block, .topic, .block {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Callout Panels & Blockquotes */
+  .panel, .callout, blockquote {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    overflow: visible !important;
+    max-width: 100% !important;
   }
 
   /* KaTeX Math */
@@ -1194,7 +1253,7 @@ export function getDocumentPrintSpecStyles(options: DocumentPrintSpecOptions = {
   }
 
   /* Images & Figures */
-  img, figure, .panel, .callout, blockquote {
+  img, figure {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     max-width: 100% !important;

@@ -19,10 +19,14 @@ import {
   Sparkles,
   History,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Database,
+  AlertTriangle,
+  Printer
 } from 'lucide-react';
-import { type HtmlNoteItem } from '../../../lib/htmlNotesSync';
+import { type HtmlNoteItem, type HtmlProject } from '../../../lib/htmlNotesSync';
 import { type DriveSyncStatus } from '../../../lib/htmlNotesDriveSync';
+import { checkFirestoreDocSize, type DocSizeCheckResult } from '../../../lib/firestoreDocSizeValidator';
 import { type ViewMode, type ViewportMode } from '../types';
 
 interface HtmlNotesHeaderProps {
@@ -55,6 +59,7 @@ interface HtmlNotesHeaderProps {
   // AI Assistant
   onToggleAiAssistant?: () => void;
   isAiAssistantOpen?: boolean;
+  activeProject?: HtmlProject | null;
   // Row 3: Files tabs
   activeProjectId: string;
   activeFileId: string;
@@ -74,6 +79,8 @@ interface HtmlNotesHeaderProps {
   onToggleFullScreenPreview?: () => void;
   isVisualEditActive?: boolean;
   onToggleVisualEdit?: () => void;
+  onPrintDocument?: () => void;
+  isPrinting?: boolean;
 }
 
 export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
@@ -103,6 +110,7 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
   onOpenVersionHistory,
   onToggleAiAssistant,
   isAiAssistantOpen = false,
+  activeProject,
   activeProjectId,
   activeFileId,
   activeProjectFiles,
@@ -119,9 +127,16 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
   isFullScreenPreview = false,
   isVisualEditActive = false,
   onToggleVisualEdit,
+  onPrintDocument,
+  isPrinting = false
 }) => {
   const tabsScrollRef = React.useRef<HTMLDivElement>(null);
   const activeTabRef = React.useRef<HTMLButtonElement>(null);
+
+  const docSizeResult: DocSizeCheckResult | null = React.useMemo(() => {
+    if (!activeProject) return null;
+    return checkFirestoreDocSize(activeProject);
+  }, [activeProject]);
 
   React.useEffect(() => {
     if (activeTabRef.current) {
@@ -203,7 +218,7 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
                 onClick={() => setViewMode('editor')}
                 className={`px-3 py-1 rounded-full text-xs font-medium border-0 flex items-center gap-1 cursor-pointer transition-all duration-100 ease-out active:scale-[0.98] ${
                   viewMode === 'editor'
-                    ? 'bg-[#4169e1] text-white shadow-xs font-semibold'
+                    ? 'bg-[#0b57d0] text-white shadow-xs font-semibold'
                     : 'text-slate-700 dark:text-[#c4c7c5] hover:text-black dark:hover:text-white font-medium'
                 }`}
                 title="Code Editor Mode"
@@ -217,7 +232,7 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
                 onClick={() => setViewMode('split')}
                 className={`px-3 py-1 rounded-full text-xs font-medium border-0 flex items-center gap-1 cursor-pointer transition-all duration-100 ease-out active:scale-[0.98] ${
                   viewMode === 'split'
-                    ? 'bg-[#4169e1] text-white shadow-xs font-semibold'
+                    ? 'bg-[#0b57d0] text-white shadow-xs font-semibold'
                     : 'text-slate-700 dark:text-[#c4c7c5] hover:text-black dark:hover:text-white font-medium'
                 }`}
                 title="Split Code & Preview Mode"
@@ -231,7 +246,7 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
                 onClick={() => setViewMode('preview')}
                 className={`px-3 py-1 rounded-full text-xs font-medium border-0 flex items-center gap-1 cursor-pointer transition-all duration-100 ease-out active:scale-[0.98] ${
                   viewMode === 'preview'
-                    ? 'bg-[#4169e1] text-white shadow-xs font-semibold'
+                    ? 'bg-[#0b57d0] text-white shadow-xs font-semibold'
                     : 'text-slate-700 dark:text-[#c4c7c5] hover:text-black dark:hover:text-white font-medium'
                 }`}
                 title="Live Preview Mode"
@@ -270,6 +285,27 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
 
           {/* Right: Save, Menu actions */}
           <nav className="actions flex items-center gap-1.5 sm:gap-2 font-semibold">
+
+            {/* Document Size Validator Guardrail Badge */}
+            {docSizeResult && (
+              <div 
+                className={`hidden sm:flex items-center gap-1.5 h-9 px-3 rounded-full text-xs font-mono font-medium transition-all select-none border-0 shrink-0 ${
+                  docSizeResult.isExceeded
+                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 animate-pulse'
+                    : docSizeResult.isApproachingLimit
+                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
+                    : 'bg-slate-100 text-slate-600 dark:bg-[#32353c] dark:text-zinc-400'
+                }`}
+                title={`Firestore Project Document Size: ${docSizeResult.formattedSize} / 1 MB limit (${docSizeResult.percentageUsed}%). ${docSizeResult.warningMessage || 'Safe within limits.'}`}
+              >
+                {docSizeResult.isApproachingLimit || docSizeResult.isExceeded ? (
+                  <AlertTriangle className={`w-3.5 h-3.5 shrink-0 ${docSizeResult.isExceeded ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`} />
+                ) : (
+                  <Database className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-400 shrink-0" />
+                )}
+                <span>{docSizeResult.formattedSize}</span>
+              </div>
+            )}
 
             {/* Save Button - appears in vibrant orange when edited (saved locally, pending Firebase sync) */}
             {hasUnsavedChanges ? (
@@ -317,6 +353,23 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
               >
                 <Sparkles className={`w-3.5 h-3.5 shrink-0 ${isAiAssistantOpen ? 'text-white' : 'text-[#0b57d0] dark:text-[#a8c7fa]'}`} />
                 <span className="hidden sm:inline">AI Studio</span>
+              </button>
+            )}
+
+            {/* Quick Print Document Button (Desktop & Tablet) */}
+            {onPrintDocument && (
+              <button
+                type="button"
+                onClick={onPrintDocument}
+                disabled={isPrinting}
+                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-[#32353c] dark:hover:bg-[#3f424c] text-[#444746] dark:text-[#c4c7c5] border-0 hidden sm:flex items-center justify-center cursor-pointer active:scale-95 transition-all outline-none shrink-0 disabled:opacity-50"
+                title="Print Document (Native Print, Ctrl+P)"
+              >
+                {isPrinting ? (
+                  <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />
+                ) : (
+                  <Printer className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                )}
               </button>
             )}
 
@@ -432,7 +485,7 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
               onClick={() => setViewMode('editor')}
               className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium border-0 flex items-center gap-1 cursor-pointer transition-all duration-100 ease-out active:scale-[0.98] ${
                 viewMode === 'editor'
-                  ? 'bg-[#4169e1] text-white shadow-xs font-semibold'
+                  ? 'bg-[#0b57d0] text-white shadow-xs font-semibold'
                   : 'text-slate-700 dark:text-[#c4c7c5] hover:text-black dark:hover:text-white font-medium'
               }`}
               title="Code Editor Mode"
@@ -446,7 +499,7 @@ export const HtmlNotesHeader: React.FC<HtmlNotesHeaderProps> = ({
               onClick={() => setViewMode('preview')}
               className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium border-0 flex items-center gap-1 cursor-pointer transition-all duration-100 ease-out active:scale-[0.98] ${
                 viewMode === 'preview'
-                  ? 'bg-[#4169e1] text-white shadow-xs font-semibold'
+                  ? 'bg-[#0b57d0] text-white shadow-xs font-semibold'
                   : 'text-slate-700 dark:text-[#c4c7c5] hover:text-black dark:hover:text-white font-medium'
               }`}
               title="Live Preview Mode"

@@ -109,17 +109,47 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
 
 
   const [isDark, setIsDark] = useState<boolean>(() => {
-    if (typeof document !== 'undefined') {
-      return document.documentElement.classList.contains('dark') || Boolean(initialDarkMode);
+    if (typeof initialDarkMode === 'boolean') {
+      return initialDarkMode;
     }
-    return Boolean(initialDarkMode);
+    if (typeof document !== 'undefined') {
+      return document.documentElement.classList.contains('dark');
+    }
+    return false;
   });
 
-  // Always synchronize isDark with app dark mode
+  // Always synchronize isDark with app dark mode prop
   useEffect(() => {
-    const isDocDark = typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : false;
-    setIsDark(Boolean(initialDarkMode || isDocDark));
+    setIsDark(Boolean(initialDarkMode));
   }, [initialDarkMode]);
+
+  // Synchronize isDark when document theme class mutations or theme-changed events fire
+  useEffect(() => {
+    const syncThemeFromDom = () => {
+      if (typeof document !== 'undefined') {
+        const isDocDark = document.documentElement.classList.contains('dark');
+        setIsDark(isDocDark);
+      }
+    };
+
+    window.addEventListener('theme-changed', syncThemeFromDom);
+
+    let observer: MutationObserver | null = null;
+    if (typeof document !== 'undefined' && document.documentElement) {
+      observer = new MutationObserver(() => {
+        syncThemeFromDom();
+      });
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class'],
+      });
+    }
+
+    return () => {
+      window.removeEventListener('theme-changed', syncThemeFromDom);
+      if (observer) observer.disconnect();
+    };
+  }, []);
 
   // Guard against narrow screen split view collapse
   useEffect(() => {
@@ -189,7 +219,6 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
   // Mobile More Sheet & Printing State
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState<boolean>(false);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
-  const [printModalUrl, setPrintModalUrl] = useState<string | null>(null);
 
   // DOM Refs
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -266,9 +295,9 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
   const activeProjectFiles = useMemo(() => activeProject ? activeProject.files : [], [activeProject]);
   const activeFile = useMemo(() => activeProject?.files.find((f) => f.id === activeFileId), [activeProject, activeFileId]);
 
-  // Background Semantic Summarization for all project files
+  // Background Semantic Summarization: only runs when AI Assistant panel is opened
   useEffect(() => {
-    if (!activeProjectFiles || activeProjectFiles.length === 0) return;
+    if (!isAiAssistantOpen || !activeProjectFiles || activeProjectFiles.length === 0) return;
 
     const generateSummaries = async () => {
       const newSummaries = { ...fileSummaries };
@@ -301,13 +330,13 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
     };
 
     // Delay a bit to avoid hammer during rapid switching
-    const timer = setTimeout(generateSummaries, 2000);
+    const timer = setTimeout(generateSummaries, 1500);
     return () => clearTimeout(timer);
-  }, [activeProjectFiles]);
+  }, [isAiAssistantOpen, activeProjectFiles]);
 
-  // Custom Margins (Defaults: 5mm side margins, 8mm vertical margins)
-  const [sideMarginMm, setSideMarginMm] = useState<number>(5);
-  const [verticalMarginMm, setVerticalMarginMm] = useState<number>(8);
+  // Custom Margins (Defaults: 10mm side margins, 12mm vertical margins)
+  const [sideMarginMm, setSideMarginMm] = useState<number>(10);
+  const [verticalMarginMm, setVerticalMarginMm] = useState<number>(12);
   const [leftBindingGutterMm, setLeftBindingGutterMm] = useState<number>(0);
   const [fontSizePx, setFontSizePx] = useState<number>(15);
   const totalLeftMarginMm = sideMarginMm + leftBindingGutterMm;
@@ -429,76 +458,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
     setFontSizePx
   });
 
-  // Multi-touch Pinch-to-Zoom gesture engine for mobile devices in Full Screen Preview
-  useEffect(() => {
-    if (!isFullScreenPreview) return;
 
-    let initialDist = 0;
-    let initialZoom = zoomLevel;
-
-    const getTouchDist = (touches: TouchList) => {
-      if (touches.length < 2) return 0;
-      const dx = touches[0].clientX - touches[1].clientX;
-      const dy = touches[0].clientY - touches[1].clientY;
-      return Math.hypot(dx, dy);
-    };
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        initialDist = getTouchDist(e.touches);
-        initialZoom = zoomLevel;
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && initialDist > 0) {
-        const currentDist = getTouchDist(e.touches);
-        if (currentDist > 0) {
-          const factor = currentDist / initialDist;
-          const targetZoom = Math.min(250, Math.max(30, Math.round(initialZoom * factor)));
-          applyIframeZoom(targetZoom);
-          setZoomLevel(targetZoom);
-        }
-      }
-    };
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
-        initialDist = 0;
-      }
-    };
-
-    const targetEl = fullScreenIframeRef.current?.parentElement || document.body;
-    targetEl.addEventListener('touchstart', handleTouchStart, { passive: true });
-    targetEl.addEventListener('touchmove', handleTouchMove, { passive: true });
-    targetEl.addEventListener('touchend', handleTouchEnd, { passive: true });
-
-    try {
-      const frameDoc = fullScreenIframeRef.current?.contentDocument;
-      if (frameDoc) {
-        frameDoc.addEventListener('touchstart', handleTouchStart, { passive: true });
-        frameDoc.addEventListener('touchmove', handleTouchMove, { passive: true });
-        frameDoc.addEventListener('touchend', handleTouchEnd, { passive: true });
-      }
-    } catch (_) {}
-
-    return () => {
-      targetEl.removeEventListener('touchstart', handleTouchStart);
-      targetEl.removeEventListener('touchmove', handleTouchMove);
-      targetEl.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [isFullScreenPreview, zoomLevel, applyIframeZoom, setZoomLevel]);
-
-  // Sync pinch-to-zoom events from inside preview iframe
-  useEffect(() => {
-    const handleZoomMessage = (e: MessageEvent) => {
-      if (e.data && e.data.type === 'NOTES_STUDIO_ZOOM_CHANGE' && typeof e.data.zoomLevel === 'number') {
-        setZoomLevel(e.data.zoomLevel);
-      }
-    };
-    window.addEventListener('message', handleZoomMessage);
-    return () => window.removeEventListener('message', handleZoomMessage);
-  }, [setZoomLevel]);
 
   // Sync studio view changes with parent Notes Studio
   useEffect(() => {
@@ -679,7 +639,6 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
       const end = textareaRef.current.selectionEnd || 0;
       const newCode = code.substring(0, start) + snippet + code.substring(end);
       updateCodeWithHistory(newCode);
-      handleSaveCurrentFile();
       setTimeout(() => {
         if (textareaRef.current) {
           textareaRef.current.selectionStart = start + snippet.length;
@@ -719,8 +678,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
       newCode = newCode + '\n' + snippet;
     }
     updateCodeWithHistory(newCode);
-    handleSaveCurrentFile();
-  }, [viewMode, code, updateCodeWithHistory, handleSaveCurrentFile]);
+  }, [viewMode, code, updateCodeWithHistory]);
 
   // Visual Canvas Edit Mode state (Google Docs live preview inline editing)
   const [isVisualEditActive, setIsVisualEditActive] = useState<boolean>(false);
@@ -813,8 +771,8 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
     return () => window.removeEventListener('message', handleWindowMessage);
   }, [activeProjectFiles, activeProjectId, handleOpenFile, viewMode, code, updateCodeWithHistory, handleStudioUndo, handleStudioRedo]);
 
-  // Native Browser Print Trigger
-  const handlePrintDocument = () => {
+  // Native Browser Print Trigger (Direct In-Page Printable Portal)
+  const handlePrintDocument = useCallback(async () => {
     setIsPrinting(true);
     try {
       let currentCodeToPrint = code || '';
@@ -848,24 +806,197 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         isSlideMode: isSlideDeck
       });
 
-      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-      const blobUrl = URL.createObjectURL(blob);
-      setPrintModalUrl(blobUrl);
+      // 1. Direct In-Page Print Portal (matches src/index.css #studio-printable-target)
+      const portalId = 'studio-printable-target';
+      let portalEl = document.getElementById(portalId);
+      if (portalEl && portalEl.parentNode) {
+        portalEl.parentNode.removeChild(portalEl);
+      }
 
+      portalEl = document.createElement('div');
+      portalEl.id = portalId;
+      portalEl.className = 'studio-print-target';
+
+      // Parse fullHtml to extract stylesheets and body
+      let headStyles = '';
+      let bodyHtml = fullHtml;
       try {
-        const printWin = window.open(blobUrl, '_blank');
-        if (printWin) {
-          printWin.focus();
+        const parser = new DOMParser();
+        const pDoc = parser.parseFromString(fullHtml, 'text/html');
+        // Strip scripts to prevent duplicate triggers
+        pDoc.querySelectorAll('script').forEach(s => s.remove());
+        headStyles = Array.from(pDoc.querySelectorAll('link, style'))
+          .map(el => {
+            let html = el.outerHTML;
+            // Neutralize any embedded @page rules so they do not conflict with Margin Settings tab
+            html = html.replace(/@page\s*\{[^}]*\}/gi, '/* studio controlled @page */');
+            return html;
+          })
+          .join('\n');
+        bodyHtml = pDoc.body ? pDoc.body.innerHTML : fullHtml;
+      } catch (parseErr) {
+        console.warn('Print DOM parsing error:', parseErr);
+      }
+
+      const vMargin = typeof verticalMarginMm === 'number' && verticalMarginMm >= 0 ? verticalMarginMm : 12;
+      const sMargin = typeof sideMarginMm === 'number' && sideMarginMm >= 0 ? sideMarginMm : 10;
+      const lMargin = typeof totalLeftMarginMm === 'number' && totalLeftMarginMm >= 0 ? totalLeftMarginMm : sMargin;
+
+      // Inject dynamic print style into document.head so Chromium's print engine registers @page margins
+      const styleId = 'studio-active-print-dynamic-style';
+      let dynamicStyle = document.getElementById(styleId) as HTMLStyleElement | null;
+      if (!dynamicStyle) {
+        dynamicStyle = document.createElement('style');
+        dynamicStyle.id = styleId;
+        document.head.appendChild(dynamicStyle);
+      }
+
+      dynamicStyle.textContent = `
+        @media screen {
+          #${portalId} {
+            display: none !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
+            opacity: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+            z-index: -9999 !important;
+          }
         }
-      } catch (err) {
-        console.warn('Popup window.open failed:', err);
+        @media print {
+          @page {
+            size: ${isSlideDeck ? 'A4 landscape' : 'A4 portrait'};
+            margin: ${isSlideDeck ? '0' : `${vMargin}mm ${sMargin}mm ${vMargin}mm ${lMargin}mm`};
+            margin-top: ${isSlideDeck ? '0' : `${vMargin}mm`};
+            margin-bottom: ${isSlideDeck ? '0' : `${vMargin}mm`};
+            margin-left: ${isSlideDeck ? '0' : `${lMargin}mm`};
+            margin-right: ${isSlideDeck ? '0' : `${sMargin}mm`};
+          }
+          *, *::before, *::after {
+            box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
+          body > *:not(#${portalId}) {
+            display: none !important;
+          }
+          html, body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            min-width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          #${portalId} {
+            display: block !important;
+            position: static !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            box-sizing: border-box !important;
+          }
+          #${portalId} .print-document-content {
+            box-sizing: border-box !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+        }
+      `;
+
+      portalEl.innerHTML = `${headStyles}\n${bodyHtml}`;
+      document.body.appendChild(portalEl);
+
+      const activeFile = activeProjectFiles.find(f => f.id === activeFileId);
+      const noteDocTitle = activeFile?.title || activeProject?.name || 'Document Note';
+      const originalDocTitle = document.title;
+      document.title = noteDocTitle;
+
+      const cleanup = () => {
+        document.title = originalDocTitle;
+        if (portalEl && portalEl.parentNode) {
+          portalEl.parentNode.removeChild(portalEl);
+        }
+        if (dynamicStyle && dynamicStyle.parentNode) {
+          dynamicStyle.parentNode.removeChild(dynamicStyle);
+        }
+        window.removeEventListener('afterprint', cleanup);
+        setIsPrinting(false);
+      };
+
+      window.addEventListener('afterprint', cleanup);
+      setTimeout(cleanup, 45000);
+
+      // Brief delay to ensure portal DOM settles and styles compute
+      await new Promise(resolve => setTimeout(resolve, 80));
+
+      // Trigger the native device print dialog directly on main window!
+      try {
+        window.focus();
+        window.print();
+      } catch (printErr) {
+        console.warn('In-page window.print error, attempting visible iframe print:', printErr);
+        let fallbackFrame = document.getElementById('studio-fallback-print-frame') as HTMLIFrameElement | null;
+        if (!fallbackFrame) {
+          fallbackFrame = document.createElement('iframe');
+          fallbackFrame.id = 'studio-fallback-print-frame';
+          fallbackFrame.style.cssText = 'position:fixed;bottom:0;right:0;width:200px;height:200px;opacity:0.01;pointer-events:none;border:none;z-index:-1;';
+          document.body.appendChild(fallbackFrame);
+        }
+        const fDoc = fallbackFrame.contentWindow?.document || fallbackFrame.contentDocument;
+        if (fDoc && fallbackFrame.contentWindow) {
+          fDoc.open();
+          fDoc.write(fullHtml);
+          fDoc.close();
+          setTimeout(() => {
+            try {
+              fallbackFrame?.contentWindow?.focus();
+              fallbackFrame?.contentWindow?.print();
+            } catch (e) {
+              console.warn('Fallback iframe print failed:', e);
+            }
+          }, 250);
+        }
       }
     } catch (err) {
       console.error('Print generation error:', err);
-    } finally {
-      setTimeout(() => setIsPrinting(false), 500);
+      setIsPrinting(false);
     }
-  };
+  }, [
+    code,
+    viewportMode,
+    sideMarginMm,
+    verticalMarginMm,
+    totalLeftMarginMm,
+    fontSizePx,
+    isVisualEditActive,
+    activeProjectFiles,
+    activeFileId,
+    activeProject
+  ]);
+
+  // Keyboard Shortcut: Ctrl+P / Cmd+P triggers clean native print
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        handlePrintDocument();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handlePrintDocument]);
 
   const currentCode = code || '';
   const lineCount = useMemo(() => currentCode.split('\n').length, [currentCode]);
@@ -888,7 +1019,6 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
 
       const updated = before + formattedSnippet + after;
       updateCodeWithHistory(updated);
-      handleSaveCurrentFile();
       setTargetPointerIndex(null); // Clear after use
       return;
     }
@@ -923,7 +1053,6 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
 
         const updated = before + formattedSnippet + after;
         updateCodeWithHistory(updated);
-        handleSaveCurrentFile();
 
         setTimeout(() => {
           if (textareaRef.current) {
@@ -946,9 +1075,8 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         updated = activeCode + '\n' + snippet;
       }
       updateCodeWithHistory(updated);
-      handleSaveCurrentFile();
     }
-  }, [code, updateCodeWithHistory, handleSaveCurrentFile]);
+  }, [code, updateCodeWithHistory]);
 
   const handleInsertSnippetAtCharIndex = useCallback((snippet: string, charIndex?: number) => {
     if (!snippet) return;
@@ -958,11 +1086,10 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
       const after = activeCode.substring(charIndex);
       const updated = before + snippet + after;
       updateCodeWithHistory(updated);
-      handleSaveCurrentFile();
     } else {
       handleInsertCodeSnippetAtPointer(snippet);
     }
-  }, [code, updateCodeWithHistory, handleSaveCurrentFile, handleInsertCodeSnippetAtPointer]);
+  }, [code, updateCodeWithHistory, handleInsertCodeSnippetAtPointer]);
 
   const handleInsertLatexFormula = useCallback((latexCode: string, isBlockMode: boolean) => {
     const snippet = isBlockMode ? `\n$$\n${latexCode}\n$$\n` : ` $${latexCode}$ `;
@@ -1042,7 +1169,6 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
       if (cleanReplacement) {
         const newCode = replaceSelectedSnippet(code, selectedSnippet, cleanReplacement);
         updateCodeWithHistory(newCode);
-        handleSaveCurrentFile();
         showDriveToast?.('Refined selection with AI ✨');
       }
     } catch (err: any) {
@@ -1051,7 +1177,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
     } finally {
       setIsSlantLoading(false);
     }
-  }, [code, title, isSlantLoading, activeProject, activeFileId, activeProjectFiles, updateCodeWithHistory, handleSaveCurrentFile, showDriveToast]);
+  }, [code, title, isSlantLoading, activeProject, activeFileId, activeProjectFiles, updateCodeWithHistory, showDriveToast]);
 
   const prevActiveFileIdRef = useRef<string>(activeFileId);
 
@@ -1175,6 +1301,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
             onOpenMathEditor={() => setIsMathModalOpen(true)}
             isAiAssistantOpen={isAiAssistantOpen}
             onToggleAiAssistant={() => setIsAiAssistantOpen(prev => !prev)}
+            activeProject={activeProject}
             activeProjectId={activeProject?.id || activeProjectId}
             activeFileId={activeFileId}
             activeProjectFiles={activeProjectFiles}
@@ -1190,6 +1317,8 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
             isFullScreenPreview={isFullScreenPreview}
             isVisualEditActive={isVisualEditActive}
             onToggleVisualEdit={handleToggleVisualEdit}
+            onPrintDocument={handlePrintDocument}
+            isPrinting={isPrinting}
           />
 
           <main ref={workspaceRef} className="workspace">
@@ -1357,8 +1486,6 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         noteTitle={deleteTarget?.title || title}
         deleteTargetType={deleteTarget?.type || 'file'}
         savedSuccess={savedSuccess}
-        printModalUrl={printModalUrl}
-        setPrintModalUrl={setPrintModalUrl}
         fileInputRef={fileInputRef}
         imageUploadRef={imageUploadRef}
         onImportFile={handleImportFile}
@@ -1374,7 +1501,6 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         noteTitle={title}
         onRestoreVersion={(ver) => {
           updateCodeWithHistory(ver.code);
-          handleSaveCurrentFile();
         }}
       />
 
@@ -1404,7 +1530,6 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         onClearSelectedText={() => setSelectedTextForAi(null)}
         onApplyCode={(newCode) => {
           updateCodeWithHistory(newCode, true);
-          handleSaveCurrentFile();
         }}
         onInsertCodeSnippet={(snippet) => {
           handleInsertSnippetAtCharIndex(snippet, targetPointerIndex ?? undefined);
@@ -1490,7 +1615,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
             </div>
           </div>
 
-          {/* Full Screen Content Frame with Native & Touch Pinch Zoom Support */}
+          {/* Full Screen Content Frame (Zoom managed via explicit zoom buttons) */}
           <div className="flex-1 min-h-0 w-full h-full relative overflow-auto bg-slate-100 dark:bg-zinc-950">
             <iframe
               ref={fullScreenIframeRef}
@@ -1498,7 +1623,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
               srcDoc={iframeSrcDoc}
               onLoad={() => applyIframeZoom(zoomLevel)}
               className="w-full h-full border-0 block bg-white dark:bg-[#14161d]"
-              style={{ width: '100%', height: '100%', border: 0, display: 'block', touchAction: 'pan-x pan-y pinch-zoom' }}
+              style={{ width: '100%', height: '100%', border: 0, display: 'block', touchAction: 'pan-x pan-y' }}
             />
           </div>
         </div>

@@ -26,7 +26,10 @@ import {
   handleFirestoreError, 
   OperationType, 
   isGlobalQuotaExceeded,
-  setGlobalQuotaExceeded
+  setGlobalQuotaExceeded,
+  type UserSyncBeacon,
+  updateUserSyncBeacon,
+  deleteSingleChatSessionFromFirestoreDirect
 } from './firebase';
 import { 
   loadScopedTests, 
@@ -149,7 +152,15 @@ export function computeEntityChecksum(data: any): string {
 // Types & Interfaces
 // ==========================================
 
-export type CollectionName = 'tests' | 'attempts' | 'users' | 'notes' | 'chatSessions' | 'bookmarks' | 'chat_archives' | 'notes_manifests';
+export type CollectionName = 'tests' | 'attempts' | 'users' | 'notes' | 'chatSessions' | 'bookmarks' | 'notes_manifests' | 'user_sync_beacons';
+
+export interface DomainRevisions {
+  testsRev: number;
+  attemptsRev: number;
+  notesRev: number;
+  chatsRev: number;
+  profileRev: number;
+}
 
 export type MutationType = 'set' | 'update' | 'delete';
 
@@ -354,6 +365,8 @@ export class SmartLocalCoordinator {
   private syncedFingerprints: Map<string, string> = new Map();
   // Timestamp store for collection sync metadata across reloads
   private syncTimestamps: Map<string, number> = new Map();
+  // Local domain sync revision tracker to gate all collection queries
+  private syncRevisions: Map<string, DomainRevisions> = new Map();
 
   // Telemetry & Metrics Tracking
   private metrics: TelemetryMetrics = {
@@ -370,7 +383,7 @@ export class SmartLocalCoordinator {
   private storagePrefix = 'smart_coordinator_v1_';
 
   // Strict Remote Storage Boundary: Only permitted top-level collections are synced with Firebase
-  public readonly ALLOWED_FIRESTORE_COLLECTIONS: ReadonlySet<CollectionName> = new Set(['tests', 'attempts', 'users', 'notes_manifests']);
+  public readonly ALLOWED_FIRESTORE_COLLECTIONS: ReadonlySet<CollectionName> = new Set(['tests', 'attempts', 'users', 'user_sync_beacons']);
 
   constructor() {
     this.initL2StorageHydration();
@@ -400,6 +413,15 @@ export class SmartLocalCoordinator {
           }
         });
       }
+      const rawRevs = localStorage.getItem(`${this.storagePrefix}sync_revisions`);
+      if (rawRevs) {
+        const parsedRevs = JSON.parse(rawRevs);
+        Object.entries(parsedRevs).forEach(([uid, revs]) => {
+          if (revs && typeof revs === 'object') {
+            this.syncRevisions.set(uid, revs as DomainRevisions);
+          }
+        });
+      }
     } catch {}
   }
 
@@ -417,7 +439,55 @@ export class SmartLocalCoordinator {
         timeObj[k] = v;
       });
       localStorage.setItem(`${this.storagePrefix}sync_timestamps`, JSON.stringify(timeObj));
+
+      const revsObj: Record<string, DomainRevisions> = {};
+      this.syncRevisions.forEach((v, k) => {
+        revsObj[k] = v;
+      });
+      localStorage.setItem(`${this.storagePrefix}sync_revisions`, JSON.stringify(revsObj));
+      putGenericItem(`${this.storagePrefix}sync_revisions`, revsObj).catch(() => {});
     } catch {}
+  }
+
+  /**
+   * Retrieves current local domain sync revisions for an authenticated user.
+   */
+  public getLocalSyncRevisions(userId?: string | null): DomainRevisions {
+    const uid = userId && userId !== 'anonymous' && userId !== 'guest-user' ? userId.trim() : 'guest';
+    const found = this.syncRevisions.get(uid);
+    if (found) return found;
+
+    const defaultRevs: DomainRevisions = {
+      testsRev: 0,
+      attemptsRev: 0,
+      notesRev: 0,
+      chatsRev: 0,
+      profileRev: 0,
+    };
+    this.syncRevisions.set(uid, defaultRevs);
+    return defaultRevs;
+  }
+
+  /**
+   * Sets local domain sync revision for a specific domain.
+   */
+  public setLocalSyncRevision(userId: string | null | undefined, domain: keyof DomainRevisions, rev: number): void {
+    const uid = userId && userId !== 'anonymous' && userId !== 'guest-user' ? userId.trim() : 'guest';
+    const current = this.getLocalSyncRevisions(uid);
+    current[domain] = rev;
+    this.syncRevisions.set(uid, current);
+    this.persistFingerprintsToStorage();
+  }
+
+  /**
+   * Bulk updates local domain sync revisions.
+   */
+  public setAllLocalSyncRevisions(userId: string | null | undefined, revs: Partial<DomainRevisions>): void {
+    const uid = userId && userId !== 'anonymous' && userId !== 'guest-user' ? userId.trim() : 'guest';
+    const current = this.getLocalSyncRevisions(uid);
+    Object.assign(current, revs);
+    this.syncRevisions.set(uid, current);
+    this.persistFingerprintsToStorage();
   }
 
   /**
@@ -854,6 +924,53 @@ export class SmartLocalCoordinator {
   }
 
   /**
+   * Fetches full test payload (including questions and SVG diagrams) on-demand.
+   * Checks L1 memory -> L2 IndexedDB -> Firestore single doc (Data-on-Demand).
+   */
+  public async fetchTestPayloadOnDemand(id: string, userId?: string | null): Promise<MathTest | null> {
+    if (!id) return null;
+    const activeUid = userId !== undefined ? userId : (auth.currentUser?.uid || null);
+
+    // 1. Check L1 / L2 local
+    const local = this.getTestByIdLocal(id, activeUid);
+    if (local && Array.isArray(local.questions) && local.questions.length > 0) {
+      return local;
+    }
+
+    // 2. Check IndexedDB directly
+    try {
+      const idbTests = await getAllTestsFromIndexedDB(activeUid);
+      const found = idbTests.find((t) => t.id === id);
+      if (found && Array.isArray(found.questions) && found.questions.length > 0) {
+        this.setInL1Cache('tests', id, found);
+        return found;
+      }
+    } catch {}
+
+    // 3. Fallback: Fetch single test doc on-demand from Firestore
+    if (!isOfflineLocalOnlyMode() && !isGlobalQuotaExceeded()) {
+      try {
+        const snap = await getDoc(doc(db, 'tests', id));
+        if (snap.exists()) {
+          const raw = snap.data() as MathTest;
+          const normalized: MathTest = {
+            ...raw,
+            id: snap.id,
+            questions: Array.isArray(raw.questions) ? raw.questions : [],
+          };
+          this.setInL1Cache('tests', id, normalized);
+          putTestToIndexedDB(activeUid, normalized).catch(() => {});
+          return normalized;
+        }
+      } catch (e) {
+        console.warn(`Failed to fetch test payload on-demand for ${id}:`, e);
+      }
+    }
+
+    return local || null;
+  }
+
+  /**
    * Retrieves an attempt by ID with immediate L1/L2 local fallback.
    */
   public getAttemptByIdLocal(id: string, userId?: string | null): TestAttempt | null {
@@ -1128,9 +1245,16 @@ export class SmartLocalCoordinator {
       if (!rem || !rem.id) return;
       const localExisting = mergedMap.get(rem.id);
 
-      // Rule: Never overwrite uncommitted local work!
-      if (localExisting && (pendingIds.has(rem.id) || localExisting._syncStatus === 'pending')) {
-        return; // Local version wins
+      // Rule: Never overwrite uncommitted local work or locally newer records!
+      if (localExisting) {
+        if (pendingIds.has(rem.id) || localExisting._syncStatus === 'pending') {
+          return; // Local version wins
+        }
+        const localTime = new Date((localExisting as any).localUpdatedAt || localExisting.completedAt || localExisting.createdAt || 0).getTime();
+        const remoteTime = new Date(rem.completedAt || rem.createdAt || (rem as any).updatedAt || 0).getTime();
+        if (localTime > remoteTime) {
+          return; // Local newer version wins
+        }
       }
 
       mergedMap.set(rem.id, {
@@ -1185,58 +1309,13 @@ export class SmartLocalCoordinator {
     const updatedList = [pendingSession, ...localSessions.filter((s: any) => s.id !== pendingSession.id)];
     saveScopedChatSessions(activeUid, updatedList);
 
-    // 2. Queue Single Document Cloud Archive Write (debounced for messages, immediate for toggles)
-    if (isSignedIn && !isOfflineLocalOnlyMode() && !isGlobalQuotaExceeded()) {
-      this.writeQueue = this.writeQueue.filter((t) => !(t.collection === 'chat_archives' && t.id === activeUid));
-
-      const compactSessions = updatedList
-        .filter((s: any) => s && s.id)
-        .map((s: any) => {
-          if (s.cloudSyncEnabled === true) {
-            return toCompactChatSession({ ...s, cloudSyncEnabled: true });
-          }
-          return {
-            id: s.id,
-            title: s.title || 'New Conversation',
-            createdAt: s.createdAt || Date.now(),
-            updatedAt: s.updatedAt || Date.now(),
-            modelTier: s.modelTier || 'gemini-3.8-flash',
-            cloudSyncEnabled: false,
-            messages: []
-          };
-        });
-
-      this.writeQueue.push({
-        id: activeUid!,
-        collection: 'chat_archives',
-        type: 'set',
-        data: {
-          userId: activeUid,
-          sessions: compactSessions,
-          totalSessions: compactSessions.length,
-          updatedAt: new Date().toISOString(),
-          clientVersion: 'v3.0.0',
-        },
-        userId: activeUid,
-        timestamp: Date.now(),
-        retryCount: 0,
-        syncStatus: 'synced',
-      });
-
-      this.metrics.optimisticWrites++;
-      if (forceImmediate) {
-        this.flushWriteQueue().catch(() => {});
-      }
-      // Note: During active messaging (forceImmediate = false), cloud updates are staged locally
-      // in IndexedDB & writeQueue, and flushed in a single batch only when exiting or closing the tab.
-    }
-
+    // Working mode is 100% local (0 network writes). Per-session cloud persistence is handled strictly on exit via geminiChatSyncManager.
     this.notifySubscribers('chatSessions', pendingSession.id, pendingSession);
     return pendingSession;
   }
 
   /**
-   * Deletes a chat session locally and synchronizes the single-document cloud archive.
+   * Deletes a chat session locally and removes the session document from Firestore directly.
    */
   public deleteChatSession(sessionId: string, userId?: string | null): void {
     if (!sessionId) return;
@@ -1250,28 +1329,7 @@ export class SmartLocalCoordinator {
     saveScopedChatSessions(activeUid, localSessions);
 
     if (isSignedIn && !isOfflineLocalOnlyMode() && !isGlobalQuotaExceeded()) {
-      this.writeQueue = this.writeQueue.filter((t) => !(t.collection === 'chat_archives' && t.id === activeUid));
-      const remainingCloudSessions = localSessions
-        .filter((s: any) => s && s.id && Boolean(s.cloudSyncEnabled))
-        .map((s: any) => toCompactChatSession(s));
-
-      this.writeQueue.push({
-        id: activeUid!,
-        collection: 'chat_archives',
-        type: 'set',
-        data: {
-          userId: activeUid,
-          sessions: remainingCloudSessions,
-          totalSessions: remainingCloudSessions.length,
-          updatedAt: new Date().toISOString(),
-          clientVersion: 'v3.0.0',
-        },
-        userId: activeUid,
-        timestamp: Date.now(),
-        retryCount: 0,
-      });
-
-      this.scheduleFlush(4000);
+      deleteSingleChatSessionFromFirestoreDirect(activeUid!, sessionId).catch(() => {});
     }
 
     this.notifySubscribers('chatSessions', sessionId, null);
@@ -1286,7 +1344,7 @@ export class SmartLocalCoordinator {
     const localSessions = loadScopedChatSessions(userId).filter((s: any) => s && s.id && !deletedChatIds.has(s.id));
     const pendingIds = new Set(
       this.writeQueue
-        .filter((t) => t.collection === 'chat_archives' || (t.collection === 'users' && t.customKey?.startsWith('chat_')))
+        .filter((t) => t.collection === 'users' && t.customKey?.startsWith('chat_'))
         .map((t) => t.id)
     );
 
@@ -1560,8 +1618,15 @@ export class SmartLocalCoordinator {
       if (!rem || !rem.id || delIds.has(rem.id)) return;
       const localExisting = mergedMap.get(rem.id);
 
-      if (localExisting && (pendingIds.has(rem.id) || localExisting._syncStatus === 'pending')) {
-        return; // Local version with pending changes wins
+      if (localExisting) {
+        if (pendingIds.has(rem.id) || localExisting._syncStatus === 'pending') {
+          return; // Local version with pending changes wins
+        }
+        const localTime = new Date((localExisting as any).localUpdatedAt || localExisting.updatedAt || localExisting.createdAt || 0).getTime();
+        const remoteTime = new Date(rem.updatedAt || rem.createdAt || 0).getTime();
+        if (localTime > remoteTime) {
+          return; // Local newer version wins
+        }
       }
 
       // Safeguard: Protect local diagrams against empty/stale remote documents
@@ -1715,9 +1780,6 @@ export class SmartLocalCoordinator {
         if (task.collection === 'users' && task.id !== currentUid) {
           return false;
         }
-        if (task.collection === 'chat_archives' && task.id !== currentUid) {
-          return false;
-        }
 
         if (task.type === 'delete') return true;
         // Checksum deduplication: If data is identical to synced remote, skip writing to Firestore (Zero redundant writes!)
@@ -1769,7 +1831,35 @@ export class SmartLocalCoordinator {
           }
         });
 
+        // Step 3: Bump Domain Sync Beacon Revision in the exact same Firestore WriteBatch (1 unified atomic commit)
+        const nowRev = Date.now();
+        const touchedTests = firestoreTasks.some((t) => t.collection === 'tests');
+        const touchedAttempts = firestoreTasks.some((t) => t.collection === 'attempts');
+        const touchedProfileOrChat = firestoreTasks.some((t) => t.collection === 'users');
+
+        const beaconUpdates: Partial<UserSyncBeacon> = {};
+        if (touchedTests) beaconUpdates.testsRev = nowRev;
+        if (touchedAttempts) beaconUpdates.attemptsRev = nowRev;
+        if (touchedProfileOrChat) {
+          beaconUpdates.profileRev = nowRev;
+          beaconUpdates.chatsRev = nowRev;
+        }
+
+        if (Object.keys(beaconUpdates).length > 0 && currentUid && currentUid !== 'anonymous' && currentUid !== 'guest-user') {
+          updateUserSyncBeacon(currentUid, beaconUpdates, batch);
+        }
+
         await batch.commit();
+
+        if (currentUid && currentUid !== 'anonymous' && currentUid !== 'guest-user') {
+          if (touchedTests) this.setLocalSyncRevision(currentUid, 'testsRev', nowRev);
+          if (touchedAttempts) this.setLocalSyncRevision(currentUid, 'attemptsRev', nowRev);
+          if (touchedProfileOrChat) {
+            this.setLocalSyncRevision(currentUid, 'profileRev', nowRev);
+            this.setLocalSyncRevision(currentUid, 'chatsRev', nowRev);
+          }
+        }
+
         this.metrics.batchedWritesExecuted++;
         this.updateMetricsRatio();
         this.persistFingerprintsToStorage();
@@ -1793,14 +1883,6 @@ export class SmartLocalCoordinator {
             saveScopedTests(task.userId, tests);
             putTestToIndexedDB(task.userId, found).catch(() => {});
           }
-        } else if (task.collection === 'chat_archives') {
-          const sessions = loadScopedChatSessions(task.userId);
-          sessions.forEach((s: any) => {
-            if (s && s.cloudSyncEnabled && s._syncStatus === 'pending') {
-              s._syncStatus = 'synced';
-            }
-          });
-          saveScopedChatSessions(task.userId, sessions);
         } else if (task.collection === 'users' && task.customKey?.startsWith('chat_')) {
           const sessions = loadScopedChatSessions(task.userId);
           const safeKey = task.customKey.replace('chat_', '');
@@ -1843,10 +1925,17 @@ export class SmartLocalCoordinator {
         handleFirestoreError(error, OperationType.WRITE, 'batch');
       }
 
-      // Re-queue failed tasks with exponential backoff count, dropping unrecoverable or permission-denied tasks
-      if (!isPermissionDenied) {
+      // Re-queue failed tasks safely. During quota exhaustion, tasks are NEVER dropped!
+      if (isGlobalQuotaExceeded()) {
+        // Daily quota limit exhausted: keep all un-synced tasks safely queued in local outbox (IndexedDB/L2)
+        // Never drop user tasks during quota exhaustion!
         pendingBatch.forEach((task) => {
-          if (task.retryCount < 4) {
+          this.writeQueue.unshift(task);
+        });
+        console.warn('SmartLocalCoordinator: Daily quota reached. All pending tasks safely held in local outbox.');
+      } else if (!isPermissionDenied) {
+        pendingBatch.forEach((task) => {
+          if (task.retryCount < 5) {
             task.retryCount++;
             this.writeQueue.unshift(task);
           } else {

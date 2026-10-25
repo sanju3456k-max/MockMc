@@ -748,10 +748,6 @@
    A4 Examination & OMR Sheet Print Layout Controls
    ========================================================================== */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 0 !important;
-  }
   html, body {
     background: #ffffff !important;
     color: #000000 !important;
@@ -822,11 +818,6 @@
    HTML Notes Studio Scoped Print Styles
    ========================================================================== */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 18mm;
-  }
-
   body:has(.studio) {
     background: #ffffff !important;
     color: #000000 !important;
@@ -916,8 +907,6 @@
     opacity: 1 !important;
     width: 100% !important;
     max-width: 100% !important;
-    padding: 0 !important;
-    margin: 0 !important;
     background: #ffffff !important;
     color: #000000 !important;
   }

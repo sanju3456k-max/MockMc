@@ -345,9 +345,34 @@ const DEFAULT_QUESTIONS: MathQuestion[] = [
     correctAnswer: '0',
     explanation: 'The determinant of a $2\\times2$ matrix $\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$ is $ad - bc$. Here $|A| = (2)(4) - (3)(1) = 8 - 3 = 5$.',
     points: 1,
+    hint: 'Use the standard formula $|A| = ad - bc$.'
   },
   {
     id: 'q2',
+    text: 'Evaluate the limit: $\\lim_{x \\to 0} \\frac{\\sin(5x)}{2x}$.',
+    topic: 'Calculus',
+    subtopic: 'Trigonometric Limits',
+    type: 'mcq',
+    options: ['$\\frac{5}{2}$', '$\\frac{2}{5}$', '$1$', '$5$'],
+    correctAnswer: '0',
+    explanation: 'Using the fundamental trigonometric limit $\\lim_{u \\to 0} \\frac{\\sin u}{u} = 1$: $\\lim_{x \\to 0} \\frac{\\sin(5x)}{2x} = \\frac{5}{2} \\cdot \\lim_{x \\to 0} \\frac{\\sin(5x)}{5x} = \\frac{5}{2} \\cdot 1 = \\frac{5}{2}$.',
+    points: 1,
+    hint: 'Rewrite the expression so the argument inside sine matches the denominator.'
+  },
+  {
+    id: 'q3',
+    text: 'Compute the definite integral: $\\int_{0}^{2} (3x^2 - 4x + 1)\\,dx$.',
+    topic: 'Calculus',
+    subtopic: 'Definite Integrals',
+    type: 'mcq',
+    options: ['$2$', '$4$', '$6$', '$0$'],
+    correctAnswer: '0',
+    explanation: 'The antiderivative is $F(x) = x^3 - 2x^2 + x$. Evaluating from $0$ to $2$: $F(2) = (2)^3 - 2(2)^2 + 2 = 8 - 8 + 2 = 2$. Since $F(0) = 0$, the value is $2 - 0 = 2$.',
+    points: 1,
+    hint: 'Integrate term by term: $\\int x^n dx = \\frac{x^{n+1}}{n+1}$.'
+  },
+  {
+    id: 'q4',
     text: 'Find the trace of matrix $M = \\begin{bmatrix} 5 & 2 & 1 \\\\ 0 & -3 & 4 \\\\ 7 & 8 & 6 \\end{bmatrix}$.',
     topic: 'Matrices and Determinants',
     subtopic: 'Trace of a Matrix',
@@ -356,11 +381,24 @@ const DEFAULT_QUESTIONS: MathQuestion[] = [
     correctAnswer: '0',
     explanation: 'The trace $\\text{tr}(M)$ is the sum of main diagonal elements: $5 + (-3) + 6 = 8$.',
     points: 1,
+    hint: 'Sum the entries along the main diagonal from top-left to bottom-right.'
   },
+  {
+    id: 'q5',
+    text: 'If the roots of the quadratic equation $x^2 - 7x + 12 = 0$ are $\\alpha$ and $\\beta$, find the value of $\\alpha^2 + \\beta^2$.',
+    topic: 'Algebra',
+    subtopic: 'Roots of Quadratic Equations',
+    type: 'mcq',
+    options: ['$25$', '$49$', '$37$', '$13$'],
+    correctAnswer: '0',
+    explanation: 'By Vieta\'s formulas, $\\alpha + \\beta = 7$ and $\\alpha\\beta = 12$. Using the algebraic identity: $\\alpha^2 + \\beta^2 = (\\alpha + \\beta)^2 - 2\\alpha\\beta = 7^2 - 2(12) = 49 - 24 = 25$.',
+    points: 1,
+    hint: 'Express $\\alpha^2 + \\beta^2$ in terms of $(\\alpha + \\beta)$ and $(\\alpha\\beta)$.'
+  }
 ];
 
 const SAMPLE_TEST_JSON = {
-  title: 'New Mathematics Assessment',
+  title: 'Mathematics Mastery Benchmark',
   topic: 'Matrices and Determinants',
   time: 15,
   questions: [
@@ -371,6 +409,25 @@ const SAMPLE_TEST_JSON = {
       options: ['5', '8', '-5', '11'],
       correctAnswer: 0,
       explanation: 'The determinant of a $2\\times2$ matrix $\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$ is $ad - bc$. Here $|A| = (2)(4) - (3)(1) = 8 - 3 = 5$.',
+      hint: 'Use the standard formula $|A| = ad - bc$.'
+    },
+    {
+      text: 'Evaluate the limit: $\\lim_{x \\to 0} \\frac{\\sin(5x)}{2x}$.',
+      topic: 'Calculus',
+      subtopic: 'Trigonometric Limits',
+      options: ['$\\frac{5}{2}$', '$\\frac{2}{5}$', '$1$', '$5$'],
+      correctAnswer: 0,
+      explanation: 'Using the fundamental trigonometric limit $\\lim_{u \\to 0} \\frac{\\sin u}{u} = 1$: $\\lim_{x \\to 0} \\frac{\\sin(5x)}{2x} = \\frac{5}{2} \\cdot 1 = \\frac{5}{2}$.',
+      hint: 'Rewrite the expression so the argument inside sine matches the denominator.'
+    },
+    {
+      text: 'Compute the definite integral: $\\int_{0}^{2} (3x^2 - 4x + 1)\\,dx$.',
+      topic: 'Calculus',
+      subtopic: 'Definite Integrals',
+      options: ['$2$', '$4$', '$6$', '$0$'],
+      correctAnswer: 0,
+      explanation: 'The antiderivative is $F(x) = x^3 - 2x^2 + x$. Evaluating from $0$ to $2$: $F(2) = 8 - 8 + 2 = 2$.',
+      hint: 'Integrate term by term: $\\int x^n dx = \\frac{x^{n+1}}{n+1}$.'
     },
     {
       text: 'Find the trace of matrix $M = \\begin{bmatrix} 5 & 2 & 1 \\\\ 0 & -3 & 4 \\\\ 7 & 8 & 6 \\end{bmatrix}$.',
@@ -379,7 +436,17 @@ const SAMPLE_TEST_JSON = {
       options: ['8', '11', '6', '14'],
       correctAnswer: 0,
       explanation: 'The trace $\\text{tr}(M)$ is the sum of main diagonal elements: $5 + (-3) + 6 = 8$.',
+      hint: 'Sum the entries along the main diagonal.'
     },
+    {
+      text: 'If the roots of the quadratic equation $x^2 - 7x + 12 = 0$ are $\\alpha$ and $\\beta$, find the value of $\\alpha^2 + \\beta^2$.',
+      topic: 'Algebra',
+      subtopic: 'Roots of Quadratic Equations',
+      options: ['$25$', '$49$', '$37$', '$13$'],
+      correctAnswer: 0,
+      explanation: 'By Vieta\'s formulas, $\\alpha + \\beta = 7$ and $\\alpha\\beta = 12$. Thus $\\alpha^2 + \\beta^2 = (\\alpha + \\beta)^2 - 2\\alpha\\beta = 49 - 24 = 25$.',
+      hint: 'Express $\\alpha^2 + \\beta^2$ as $(\\alpha+\\beta)^2 - 2\\alpha\\beta$.'
+    }
   ],
 };
 

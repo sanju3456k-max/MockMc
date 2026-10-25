@@ -5,6 +5,7 @@ import { getCanvasImageEngineScript } from './iframe/canvasImageEngine';
 import { getA4PaginationScript } from './iframe/a4PaginationScript';
 import { getA4PrintSpecStyles, getFluidPrintSpecStyles, getDocumentPrintSpecStyles } from './iframe/iframeStyles';
 import { sanitizeAndRepairCode } from '../../../lib/htmlNotesSync';
+import { renderMathInHtmlDocument } from '../../../lib/mathPipeline/htmlMathRenderer';
 
 export type { PrepareIframeHtmlOptions };
 export { getInteractiveCanvasScript, getPaperImageAdjustmentScript, getCanvasImageEngineScript };
@@ -44,9 +45,12 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
       return remaining ? ` class="${remaining}"` : '';
     });
 
+  // Pre-render all math equations synchronously using the core KaTeX pipeline
+  preparedCode = renderMathInHtmlDocument(preparedCode);
+
   // Slide deck mode printing
   if (isSlideMode) {
-    return prepareIframeHtml({
+    const slideHtml = prepareIframeHtml({
       code: preparedCode,
       viewportMode: 'slide',
       sideMarginMm,
@@ -59,6 +63,23 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
       setA4Pages: () => {},
       isPreviewEditMode: false
     });
+    const printScript = `
+    <script>
+      (function() {
+        function doPrint() {
+          setTimeout(function() {
+            try { window.focus(); window.print(); } catch(e) {}
+          }, 250);
+        }
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          setTimeout(doPrint, 100);
+        } else {
+          window.addEventListener('load', doPrint);
+        }
+      })();
+    </script>
+    </body>`;
+    return slideHtml.replace('</body>', printScript);
   }
 
   // High-Fidelity CSS Paged Media Document Print (Standard Notes, Tests, Tables)
@@ -71,7 +92,14 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
 
     // Extract head elements (links, styles)
     headHtml = Array.from(doc.querySelectorAll('link, style'))
-      .map(el => el.outerHTML)
+      .map(el => {
+        let h = el.outerHTML;
+        // Neutralize destructive legacy print rules that turn headings monochrome or lock tables from splitting
+        h = h.replace(/color:\s*(#000000|#000|black)\s*!important/gi, '/* color preserved */');
+        // Strip embedded @page rules so studio margin settings govern print layout
+        h = h.replace(/@page\s*\{[^}]*\}/gi, '/* studio-margin-controlled */');
+        return h;
+      })
       .join('\n');
 
     doc.querySelectorAll('link, style, script').forEach(el => el.remove());
@@ -169,8 +197,8 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
 <html>
 <head>
   ${fontTags}
-  ${headHtml}
   ${printStyles}
+  ${headHtml}
   <script>
     (function() {
       try {
@@ -182,9 +210,9 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
       } catch(e) {}
     })();
   </script>
-  <link rel="stylesheet" href="/katex/katex.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css';">
-  <script src="/katex/katex.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js';"></script>
-  <script src="/katex/contrib/auto-render.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js';"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js"></script>
 </head>
 <body>
   <div class="print-document-content">
@@ -192,19 +220,33 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
   </div>
   <script>
     function renderMathFormulas() {
-      if (!window.renderMathInElement) {
-        try {
-          var p = window.parent !== window ? window.parent : window.opener;
-          if (p) {
-            if (!window.katex && p.katex) window.katex = p.katex;
-            if (!window.renderMathInElement && p.renderMathInElement) window.renderMathInElement = p.renderMathInElement;
-          }
-        } catch(e) {}
+      var fn = window.renderMathInElement;
+      if (typeof fn !== 'function') {
+        if (fn && typeof fn.default === 'function') {
+          fn = fn.default;
+          window.renderMathInElement = fn;
+        } else {
+          try {
+            var p = window.parent !== window ? window.parent : window.opener;
+            if (p) {
+              if (typeof p.renderMathInElement === 'function') fn = p.renderMathInElement;
+              else if (p.renderMathInElement && typeof p.renderMathInElement.default === 'function') fn = p.renderMathInElement.default;
+              if (fn) window.renderMathInElement = fn;
+              if (!window.katex && p.katex) window.katex = (p.katex && p.katex.renderToString) ? p.katex : ((p.katex && p.katex.default) || p.katex);
+            }
+          } catch(e) {}
+        }
       }
 
-      if (typeof window.renderMathInElement === 'function') {
+      if (typeof fn === 'function') {
         try {
-          window.renderMathInElement(document.body, {
+          fn(document.body, {
+            preProcess: function(math) {
+              var s = math ? math.trim() : '';
+              if (!s) return '';
+              // Normalize forward-slash command typos (e.g. /frac -> \frac, /lim -> \lim)
+              return s.replace(/\/(displaystyle|textstyle|frac|sqrt|sum|int|lim|infty|partial|mathbf|mathrm|text)\b/g, '\\$1');
+            },
             delimiters: [
               { left: '$$', right: '$$', display: true },
               { left: '$', right: '$', display: false },
@@ -257,16 +299,12 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
             ignoredClasses: ['katex', 'katex-display', 'katex-html'],
             throwOnError: false
           });
-        } catch(e) {
-          console.warn('KaTeX print rendering error:', e);
-        }
-      } else {
-        setTimeout(renderMathFormulas, 50);
+        } catch(e) {}
       }
     }
 
     function initPrintProcess() {
-      renderMathFormulas();
+      try { renderMathFormulas(); } catch(e) {}
 
       function triggerPrint() {
         setTimeout(function() {
@@ -276,7 +314,7 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
           } catch(e) {
             console.warn('Auto print failed:', e);
           }
-        }, 350);
+        }, 200);
       }
 
       var imgs = Array.from(document.images);
@@ -293,18 +331,15 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
           img.onload = check;
           img.onerror = check;
         });
-        setTimeout(triggerPrint, 2500);
+        setTimeout(triggerPrint, 1500);
       }
     }
 
-    if (window.renderMathInElement) {
-      if (document.readyState === 'complete') initPrintProcess();
-      else window.addEventListener('load', initPrintProcess);
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      setTimeout(initPrintProcess, 80);
     } else {
-      window.addEventListener('load', function() {
-        renderMathFormulas();
-        setTimeout(initPrintProcess, 150);
-      });
+      window.addEventListener('DOMContentLoaded', initPrintProcess);
+      window.addEventListener('load', initPrintProcess);
     }
   </script>
 </body>
@@ -340,6 +375,9 @@ export function prepareIframeHtml(options: PrepareIframeHtmlOptions): string {
       });
   }
 
+  // Pre-render all math equations synchronously using the core KaTeX pipeline with 0ms first-frame render
+  preparedCode = renderMathInHtmlDocument(preparedCode);
+
   // Synchronous KaTeX Bridge & Local Fallback
   const katexHeadBridge = `
   <script>
@@ -347,24 +385,19 @@ export function prepareIframeHtml(options: PrepareIframeHtmlOptions): string {
       try {
         var p = window.parent !== window ? window.parent : window.opener;
         if (p) {
-          if (!window.katex && p.katex) window.katex = p.katex;
-          if (!window.renderMathInElement && p.renderMathInElement) window.renderMathInElement = p.renderMathInElement;
+          if (!window.katex && p.katex) window.katex = (p.katex && p.katex.renderToString) ? p.katex : ((p.katex && p.katex.default) || p.katex);
+          if (!window.renderMathInElement && p.renderMathInElement) {
+            window.renderMathInElement = typeof p.renderMathInElement === 'function' ? p.renderMathInElement : ((p.renderMathInElement && p.renderMathInElement.default) || p.renderMathInElement);
+          }
         }
       } catch(e) {}
     })();
   </script>
-  <link rel="stylesheet" href="/katex/katex.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css';">
-  <script src="/katex/katex.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js';"></script>
-  <script src="/katex/contrib/auto-render.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js';"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js"></script>
   `;
 
-  if (!preparedCode.includes('katex.min.css')) {
-    if (preparedCode.includes('</head>')) {
-      preparedCode = preparedCode.replace('</head>', `  ${katexHeadBridge}\n</head>`);
-    } else {
-      preparedCode = `${katexHeadBridge}\n${preparedCode}`;
-    }
-  }
 
   // 1. DETERMINISTIC SLIDE DECK & A4 BACKGROUND PAGINATION ENGINE (Slide / A4 Mode)
   if (viewportMode === 'slide' || viewportMode === 'a4') {
@@ -420,13 +453,13 @@ export function prepareIframeHtml(options: PrepareIframeHtmlOptions): string {
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Outfit:wght@500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
   ${katexHeadBridge}
-  ${headHtml}
   ${a4PrintSpecStyle}
+  ${headHtml}
 </head>
 <body class="${isSlideMode ? 'slide-mode' : ''}">
   <div class="a4-centering-stage ${isSlideMode ? 'slide-stage' : ''}">
@@ -464,13 +497,15 @@ export function prepareIframeHtml(options: PrepareIframeHtmlOptions): string {
   `;
 
   const fontTags = `
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Outfit:wght@500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
   `;
 
-  if (preparedCode.includes('</head>')) {
+  if (preparedCode.includes('<head>')) {
+    preparedCode = preparedCode.replace('<head>', `<head>\n${fontTags}\n${katexHeadBridge}\n${printStyle}`);
+  } else if (preparedCode.includes('</head>')) {
     preparedCode = preparedCode.replace('</head>', () => `${fontTags}\n${katexHeadBridge}\n${printStyle}\n</head>`);
   } else {
     preparedCode = `${fontTags}\n${katexHeadBridge}\n${printStyle}\n${preparedCode}`;

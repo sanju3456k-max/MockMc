@@ -131,17 +131,6 @@ export const NotesStudioHeader: React.FC<NotesStudioHeaderProps> = ({
               <span>New project</span>
             </button>
           )}
-          {onAddFileToProject && (
-            <button
-              type="button"
-              onClick={onAddFileToProject}
-              className="h-8.5 px-3.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-[#1e2024] dark:hover:bg-[#282a30] text-[#0b57d0] dark:text-[#a8c7fa] font-bold text-xs flex items-center gap-1.5 border-0 cursor-pointer active:scale-95 transition-all outline-none shadow-xs whitespace-nowrap"
-              title="Add a new note to current project"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New note</span>
-            </button>
-          )}
           {onImportClick && (
             <button
               type="button"

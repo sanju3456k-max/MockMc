@@ -19,6 +19,7 @@ import {
   saveLocalProjects,
   loadLocalProjects,
   queueFirestoreSync,
+  saveSingleProjectToFirestore,
   subscribeToFirestoreProjects,
   deleteProjectFromFirestore,
 } from './htmlNotesSync';
@@ -148,19 +149,8 @@ export async function syncHtmlNotesWithDrive(
   }
 }
 
-export function recordNoteSaveWithDriveOutbox(projectId: string, noteItem: HtmlNoteItem): void {
-  const currentProjs = loadLocalProjects();
-  const targetProj = currentProjs.find((p) => p.id === projectId);
-  if (targetProj) {
-    const existingIdx = targetProj.files.findIndex((f) => f.id === noteItem.id);
-    if (existingIdx !== -1) {
-      targetProj.files[existingIdx] = { ...noteItem, updatedAt: Date.now() };
-    } else {
-      targetProj.files.push({ ...noteItem, updatedAt: Date.now() });
-    }
-    targetProj.updatedAt = Date.now();
-    queueFirestoreSync(currentProjs, false);
-  }
+export function recordNoteSaveWithDriveOutbox(_projectId: string, _noteItem: HtmlNoteItem): void {
+  // Pure local-only tracking, 0 Firestore writes
 }
 
 export async function deleteNoteFromCloud(projectId: string, noteId: string): Promise<boolean> {
@@ -170,7 +160,10 @@ export async function deleteNoteFromCloud(projectId: string, noteId: string): Pr
     if (targetProj) {
       targetProj.files = targetProj.files.filter((f) => f.id !== noteId);
       targetProj.updatedAt = Date.now();
-      queueFirestoreSync(currentProjs, true);
+      saveLocalProjects(currentProjs);
+      if (auth.currentUser && !auth.currentUser.isAnonymous) {
+        saveSingleProjectToFirestore(targetProj, auth.currentUser.uid);
+      }
     }
     return true;
   } catch (err) {

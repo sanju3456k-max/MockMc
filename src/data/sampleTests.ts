@@ -152,12 +152,12 @@ export const SAMPLE_MATH_TESTS: MathTest[] = [
         text: 'What is the inverse of the matrix $A = \\begin{bmatrix} 2 & 1 \\\\ 5 & 3 \\end{bmatrix}$?',
         type: 'mcq',
         options: [
-          '\\begin{bmatrix} 3 & -1 \\\\ -5 & 2 \\end{bmatrix}',
-          '\\begin{bmatrix} 3 & 1 \\\\ 5 & 2 \\end{bmatrix}',
-          '\\begin{bmatrix} -3 & 1 \\\\ 5 & -2 \\end{bmatrix}',
-          '\\begin{bmatrix} 2 & -1 \\\\ -5 & 3 \\end{bmatrix}'
+          '$\\begin{bmatrix} 3 & -1 \\\\ -5 & 2 \\end{bmatrix}$',
+          '$\\begin{bmatrix} 3 & 1 \\\\ 5 & 2 \\end{bmatrix}$',
+          '$\\begin{bmatrix} -3 & 1 \\\\ 5 & -2 \\end{bmatrix}$',
+          '$\\begin{bmatrix} 2 & -1 \\\\ -5 & 3 \\end{bmatrix}$'
         ],
-        correctAnswer: '\\begin{bmatrix} 3 & -1 \\\\ -5 & 2 \\end{bmatrix}',
+        correctAnswer: '$\\begin{bmatrix} 3 & -1 \\\\ -5 & 2 \\end{bmatrix}$',
         explanation: '$|A| = (2)(3) - (1)(5) = 6 - 5 = 1$. The inverse $A^{-1} = \\frac{1}{|A|} \\text{adj}(A) = \\begin{bmatrix} 3 & -1 \\\\ -5 & 2 \\end{bmatrix}$.',
         points: 1
       },
@@ -166,12 +166,12 @@ export const SAMPLE_MATH_TESTS: MathTest[] = [
         text: 'If a square matrix $A$ satisfies $A^2 - A + I = O$, then what is the inverse matrix $A^{-1}$?',
         type: 'mcq',
         options: [
-          'I - A',
-          'A - I',
-          'I + A',
-          'A + I'
+          '$I - A$',
+          '$A - I$',
+          '$I + A$',
+          '$A + I$'
         ],
-        correctAnswer: 'I - A',
+        correctAnswer: '$I - A$',
         explanation: 'Rearranging $A^2 - A + I = O \\implies I = A - A^2 = A(I - A)$. Multiplying both sides by $A^{-1}$ yields $A^{-1} = I - A$.',
         points: 1
       },
@@ -222,12 +222,12 @@ export const SAMPLE_MATH_TESTS: MathTest[] = [
         text: 'If $A = \\begin{bmatrix} 1 & 0 \\\\ 2 & 1 \\end{bmatrix}$, then what is $A^n$ for any positive integer $n$?',
         type: 'mcq',
         options: [
-          '\\begin{bmatrix} 1 & 0 \\\\ 2n & 1 \\end{bmatrix}',
-          '\\begin{bmatrix} 1 & 0 \\\\ 2^n & 1 \\end{bmatrix}',
-          '\\begin{bmatrix} n & 0 \\\\ 2n & n \\end{bmatrix}',
-          '\\begin{bmatrix} 1 & 0 \\\\ 2 & 1 \\end{bmatrix}'
+          '$\\begin{bmatrix} 1 & 0 \\\\ 2n & 1 \\end{bmatrix}$',
+          '$\\begin{bmatrix} 1 & 0 \\\\ 2^n & 1 \\end{bmatrix}$',
+          '$\\begin{bmatrix} n & 0 \\\\ 2n & n \\end{bmatrix}$',
+          '$\\begin{bmatrix} 1 & 0 \\\\ 2 & 1 \\end{bmatrix}$'
         ],
-        correctAnswer: '\\begin{bmatrix} 1 & 0 \\\\ 2n & 1 \\end{bmatrix}',
+        correctAnswer: '$\\begin{bmatrix} 1 & 0 \\\\ 2n & 1 \\end{bmatrix}$',
         explanation: 'By induction or matrix multiplication: $A^2 = \\begin{bmatrix} 1 & 0 \\\\ 4 & 1 \\end{bmatrix}, A^3 = \\begin{bmatrix} 1 & 0 \\\\ 6 & 1 \\end{bmatrix} \\implies A^n = \\begin{bmatrix} 1 & 0 \\\\ 2n & 1 \\end{bmatrix}$.',
         points: 1
       },

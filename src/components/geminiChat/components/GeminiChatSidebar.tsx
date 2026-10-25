@@ -24,7 +24,6 @@ interface GeminiChatSidebarProps {
   activeSessionId: string;
   setActiveSessionId: (id: string) => void;
   setSelectedModel: (model: GeminiModelTier) => void;
-  handleToggleSessionCloudSync: (sessionId: string) => void;
   handleDeleteSession: (sessionId: string, e: React.MouseEvent) => void;
   activeSessionHasMessages: boolean;
   hasSessions: boolean;
@@ -42,7 +41,6 @@ export const GeminiChatSidebar: React.FC<GeminiChatSidebarProps> = ({
   activeSessionId,
   setActiveSessionId,
   setSelectedModel,
-  handleToggleSessionCloudSync,
   handleDeleteSession,
   activeSessionHasMessages,
   hasSessions
@@ -76,7 +74,7 @@ export const GeminiChatSidebar: React.FC<GeminiChatSidebarProps> = ({
 
         <button
           onClick={handleNewChat}
-          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-full bg-white dark:bg-[#21222e] text-slate-800 dark:text-zinc-100 hover:bg-blue-50 dark:hover:bg-[#20222e] border border-slate-300 dark:border-zinc-700 text-xs font-bold transition-all shadow-none cursor-pointer active:scale-98"
+          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-full bg-white dark:bg-[#21222e] text-slate-800 dark:text-zinc-100 hover:bg-blue-50 dark:hover:bg-[#20222e] border border-slate-300 dark:border-transparent text-xs font-bold transition-all shadow-none cursor-pointer active:scale-98"
         >
           <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400" />
           <span>New Chat</span>
@@ -91,13 +89,13 @@ export const GeminiChatSidebar: React.FC<GeminiChatSidebarProps> = ({
               placeholder="Search chats..."
               value={historySearchQuery}
               onChange={(e) => setHistorySearchQuery(e.target.value)}
-              className="w-full bg-white dark:bg-[#21222e] border border-slate-300 dark:border-zinc-700 shadow-none rounded-full pl-8.5 pr-3 py-1.5 text-xs text-slate-800 dark:text-zinc-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-all"
+              className="w-full bg-white dark:bg-[#21222e] border border-slate-300 dark:border-transparent shadow-none rounded-full pl-8.5 pr-3 py-1.5 text-xs text-slate-800 dark:text-zinc-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-all"
             />
           </div>
           {activeSessionHasMessages && (
             <button
               onClick={handleClearCurrentChat}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors shrink-0 cursor-pointer shadow-none border border-slate-300 dark:border-zinc-700"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors shrink-0 cursor-pointer shadow-none border border-slate-300 dark:border-transparent"
               title="Clear messages in current chat"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -106,7 +104,7 @@ export const GeminiChatSidebar: React.FC<GeminiChatSidebarProps> = ({
           {hasSessions && (
             <button
               onClick={handleDeleteAllSessions}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shrink-0 cursor-pointer shadow-none border border-slate-300 dark:border-zinc-700"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shrink-0 cursor-pointer shadow-none border border-slate-300 dark:border-transparent"
               title="Delete all chat history"
             >
               <Trash2 className="w-4 h-4" />
@@ -153,31 +151,6 @@ export const GeminiChatSidebar: React.FC<GeminiChatSidebarProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0 ml-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleSessionCloudSync(session.id);
-                    }}
-                    className={`w-6.5 h-6.5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                      session.cloudSyncEnabled
-                        ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-100/70 dark:hover:bg-blue-900/40'
-                        : 'opacity-50 group-hover:opacity-100 text-slate-400 hover:text-slate-600 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-slate-200 dark:hover:bg-[#3c4043]'
-                    }`}
-                    title={
-                      session.cloudSyncEnabled
-                        ? 'Cloud Sync: Enabled (Click to disable)'
-                        : 'Cloud Sync: Disabled (Click to enable)'
-                    }
-                    aria-label="Toggle cloud sync for this chat"
-                  >
-                    {session.cloudSyncEnabled ? (
-                      <Cloud className="w-3.5 h-3.5" />
-                    ) : (
-                      <CloudOff className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-
                   <button
                     type="button"
                     onClick={(e) => handleDeleteSession(session.id, e)}

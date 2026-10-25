@@ -74,15 +74,16 @@ import {
   signInWithGoogle,
   saveUserSettingsToFirestore,
   saveChatSessionToFirestore,
-  saveChatArchiveToFirestoreDirect,
   deleteChatSessionFromFirestore,
-  fetchChatArchiveFromFirestore,
-  subscribeUserChatSessionsFromFirestore,
+  deleteSingleChatSessionFromFirestoreDirect,
   flushPendingChatSaves
 } from '../../lib/firebase';
 import { 
   stageChatArchiveForExit, 
   flushChatArchiveOnExit, 
+  stageActiveChatSession,
+  flushActiveChatSessionOnExit,
+  flushAllDirtyChatSessionsOnExit,
   hydrateAndReconcileChatArchiveOnEntry,
   syncChatArchiveNow
 } from '../../lib/geminiChatSyncManager';
@@ -1327,7 +1328,6 @@ export const GeminiChatbotView: React.FC<GeminiChatbotViewProps> = ({
 
   const [sessions, setSessions] = useState<ChatSession[]>(initialSetup.initialSessions);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(initialSetup.initialActiveId);
-  const [homeCloudSyncEnabled, setHomeCloudSyncEnabled] = useState<boolean>(false);
 
   const [activeStarterCategory, setActiveStarterCategory] = useState<string>('all');
 
@@ -1640,6 +1640,14 @@ export const GeminiChatbotView: React.FC<GeminiChatbotViewProps> = ({
     onBack: () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
+      }
+      const effectiveUid = currentUserUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || null;
+      if (effectiveUid && effectiveUid !== 'guest-user' && effectiveUid !== 'anonymous') {
+        if (activeSessionRef.current) {
+          flushActiveChatSessionOnExit(effectiveUid, activeSessionRef.current).catch(() => {});
+        } else {
+          flushChatArchiveOnExit(effectiveUid, sessionsRef.current).catch(() => {});
+        }
       }
       if (onNavigateTab) {
         onNavigateTab('tests');
@@ -2144,6 +2152,16 @@ Formatting & Quality Requirements:
 
   const lastLoadedUidRef = useRef<string | null | undefined>(auth.currentUser?.uid || getCachedAuthUser()?.uid || null);
   const sessionsRef = useRef<ChatSession[]>(sessions);
+  const activeSessionRef = useRef<ChatSession | null>(activeSession);
+
+  // Sync activeSessionRef and stage active chat session whenever active session changes
+  useEffect(() => {
+    activeSessionRef.current = activeSession;
+    if (activeSession) {
+      const effectiveUid = currentUserUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || null;
+      stageActiveChatSession(effectiveUid, activeSession);
+    }
+  }, [activeSession, currentUserUid]);
 
   // Sync sessionsRef and stage chat archives for exit flush whenever sessions state updates
   useEffect(() => {
@@ -2193,12 +2211,16 @@ Formatting & Quality Requirements:
     };
   }, [currentUserUid]);
 
-  // Hook for tab close / page hide / exit / unmount to flush staged chat archive to Firestore in 1 single batch write
+  // Hook for tab close / page hide / exit / unmount to flush staged chat session to Firestore in 1 single write
   useEffect(() => {
     const handleExit = () => {
       const effectiveUid = currentUserUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || null;
       if (effectiveUid && effectiveUid !== 'guest-user' && effectiveUid !== 'anonymous') {
-        flushChatArchiveOnExit(effectiveUid, sessionsRef.current).catch(() => {});
+        if (activeSessionRef.current) {
+          flushActiveChatSessionOnExit(effectiveUid, activeSessionRef.current).catch(() => {});
+        } else {
+          flushChatArchiveOnExit(effectiveUid, sessionsRef.current).catch(() => {});
+        }
         smartCoordinator.flushWriteQueue().catch(() => {});
       }
     };
@@ -2341,6 +2363,9 @@ Formatting & Quality Requirements:
     targetSessionId?: string
   ) => {
     const targetId = targetSessionId || activeSessionId;
+    if (targetId) {
+      setActiveSessionId(targetId);
+    }
     let updatedSessionToSync: ChatSession | null = null;
     let updatedListToPersist: ChatSession[] = [];
 
@@ -2392,6 +2417,7 @@ Formatting & Quality Requirements:
     }
     if (updatedSessionToSync) {
       const effectiveUid = currentUserUid || auth.currentUser?.uid || null;
+      stageActiveChatSession(effectiveUid, updatedSessionToSync);
       smartCoordinator.recordChatSession(updatedSessionToSync, effectiveUid, false);
     }
   };
@@ -2438,8 +2464,16 @@ Formatting & Quality Requirements:
 
   // Navigate to Gemini-style New Chat Home Screen
   const handleNewChat = () => {
+    // Commit dirty active chat session before leaving current session (modeled after HTML Notes)
+    const effectiveUid = currentUserUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || null;
+    if (effectiveUid && effectiveUid !== 'guest-user' && effectiveUid !== 'anonymous') {
+      if (activeSessionRef.current) {
+        flushActiveChatSessionOnExit(effectiveUid, activeSessionRef.current).catch(() => {});
+      } else {
+        flushChatArchiveOnExit(effectiveUid, sessionsRef.current).catch(() => {});
+      }
+    }
     setActiveSessionId(null);
-    setHomeCloudSyncEnabled(false);
     setAttachments([]);
     setInputMessage('');
     if (scrollContainerRef.current) {
@@ -2455,80 +2489,6 @@ Formatting & Quality Requirements:
     }
   };
 
-  // Toggle Cloud Sync for active session or Home Screen
-  const handleToggleCloudSync = () => {
-    if (!activeSession) {
-      setHomeCloudSyncEnabled((prev) => !prev);
-      return;
-    }
-    const nextState = !activeSession.cloudSyncEnabled;
-    const effectiveUid = currentUserUid || auth.currentUser?.uid || null;
-    const isSignedIn = Boolean(effectiveUid && effectiveUid !== 'guest-user' && effectiveUid !== 'anonymous');
-
-    let updatedSessionToPush: ChatSession | null = null;
-    let nextList: ChatSession[] = [];
-
-    setSessions((prev) => {
-      const updated = prev.map((s) => {
-        if (s.id === activeSession.id) {
-          const updatedSession: ChatSession = {
-            ...s,
-            cloudSyncEnabled: nextState,
-            _syncStatus: nextState && isSignedIn ? 'synced' : 'synced',
-            updatedAt: Date.now(),
-          };
-          updatedSessionToPush = updatedSession;
-          return updatedSession;
-        }
-        return s;
-      });
-      nextList = updated;
-      saveScopedChatSessions(effectiveUid, updated);
-      stageChatArchiveForExit(effectiveUid, updated);
-      return updated;
-    });
-
-    if (updatedSessionToPush && effectiveUid && isSignedIn) {
-      smartCoordinator.recordChatSession(updatedSessionToPush, effectiveUid, true);
-      syncChatArchiveNow(effectiveUid, nextList).catch(() => {});
-    }
-  };
-
-  // Toggle Cloud Sync for any specific session (e.g. from chat history)
-  const handleToggleSessionCloudSync = (sessionId: string) => {
-    const effectiveUid = currentUserUid || auth.currentUser?.uid || null;
-    const isSignedIn = Boolean(effectiveUid && effectiveUid !== 'guest-user' && effectiveUid !== 'anonymous');
-
-    let updatedSessionToPush: ChatSession | null = null;
-    let nextList: ChatSession[] = [];
-
-    setSessions((prev) => {
-      const updated = prev.map((s) => {
-        if (s.id === sessionId) {
-          const nextState = !s.cloudSyncEnabled;
-          const updatedSession: ChatSession = {
-            ...s,
-            cloudSyncEnabled: nextState,
-            _syncStatus: nextState && isSignedIn ? 'synced' : 'synced',
-            updatedAt: Date.now(),
-          };
-          updatedSessionToPush = updatedSession;
-          return updatedSession;
-        }
-        return s;
-      });
-      nextList = updated;
-      saveScopedChatSessions(effectiveUid, updated);
-      stageChatArchiveForExit(effectiveUid, updated);
-      return updated;
-    });
-
-    if (updatedSessionToPush && effectiveUid && isSignedIn) {
-      smartCoordinator.recordChatSession(updatedSessionToPush, effectiveUid, true);
-      syncChatArchiveNow(effectiveUid, nextList).catch(() => {});
-    }
-  };
-
   // Delete chat session
   const handleDeleteSession = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -2537,6 +2497,9 @@ Formatting & Quality Requirements:
       'Are you sure you want to delete this chat conversation? All messages within it will be permanently removed.',
       () => {
         smartCoordinator.deleteChatSession(id, currentUserUid);
+        if (currentUserUid && currentUserUid !== 'guest-user' && currentUserUid !== 'anonymous') {
+          deleteSingleChatSessionFromFirestoreDirect(currentUserUid, id).catch(() => {});
+        }
 
         if (sessions.length <= 1) {
           const resetMsg: ChatbotMessage = {
@@ -2657,9 +2620,6 @@ Formatting & Quality Requirements:
             messages: remaining,
             updatedAt: Date.now()
           };
-          if (s.cloudSyncEnabled) {
-            pushSessionToCloud(updatedSession, true);
-          }
           return updatedSession;
         });
       }
@@ -2686,9 +2646,6 @@ Formatting & Quality Requirements:
           updatedAt: Date.now()
         };
         updateActiveSession(() => updated);
-        if (activeSession.cloudSyncEnabled) {
-          pushSessionToCloud(updated, true);
-        }
       }
     );
   };
@@ -2831,7 +2788,7 @@ Formatting & Quality Requirements:
         updatedAt: Date.now(),
         modelTier: selectedModel || 'gemini-3.8-flash',
         selectedTestId: null,
-        cloudSyncEnabled: homeCloudSyncEnabled && isSignedIn,
+        cloudSyncEnabled: Boolean(isSignedIn),
         messages: [],
         sessionDocuments: []
       };
@@ -3714,7 +3671,7 @@ MANDATORY INSTRUCTIONS:
 
           <button
             onClick={handleNewChat}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-full bg-white dark:bg-[#21222e] text-slate-800 dark:text-zinc-100 hover:bg-blue-50 dark:hover:bg-[#20222e] border border-slate-300 dark:border-zinc-700 text-xs font-bold transition-all shadow-none cursor-pointer active:scale-98"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-full bg-white dark:bg-[#21222e] text-slate-800 dark:text-zinc-100 hover:bg-blue-50 dark:hover:bg-[#20222e] border border-slate-300 dark:border-transparent text-xs font-bold transition-all shadow-none cursor-pointer active:scale-98"
           >
             <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             <span>New Chat</span>
@@ -3729,13 +3686,13 @@ MANDATORY INSTRUCTIONS:
                 placeholder="Search chats..."
                 value={historySearchQuery}
                 onChange={(e) => setHistorySearchQuery(e.target.value)}
-                className="w-full bg-white dark:bg-[#21222e] border border-slate-300 dark:border-zinc-700 shadow-none rounded-full pl-8.5 pr-3 py-1.5 text-xs text-slate-800 dark:text-zinc-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-all"
+                className="w-full bg-white dark:bg-[#21222e] border border-slate-300 dark:border-transparent shadow-none rounded-full pl-8.5 pr-3 py-1.5 text-xs text-slate-800 dark:text-zinc-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-all"
               />
             </div>
             {activeSession && activeSession.messages.length > 1 && (
               <button
                 onClick={handleClearCurrentChat}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors shrink-0 cursor-pointer shadow-none border border-slate-300 dark:border-zinc-700"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors shrink-0 cursor-pointer shadow-none border border-slate-300 dark:border-transparent"
                 title="Clear messages in current chat"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -3744,7 +3701,7 @@ MANDATORY INSTRUCTIONS:
             {sessions.length > 0 && (
               <button
                 onClick={handleDeleteAllSessions}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shrink-0 cursor-pointer shadow-none border border-slate-300 dark:border-zinc-700"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shrink-0 cursor-pointer shadow-none border border-slate-300 dark:border-transparent"
                 title="Delete all chat history"
               >
                 <Trash2 className="w-4 h-4" />
@@ -3766,6 +3723,16 @@ MANDATORY INSTRUCTIONS:
                 <div
                   key={session.id}
                   onClick={() => {
+                    if (session.id !== activeSessionId) {
+                      const effectiveUid = currentUserUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || null;
+                      if (effectiveUid && effectiveUid !== 'guest-user' && effectiveUid !== 'anonymous') {
+                        if (activeSessionRef.current) {
+                          flushActiveChatSessionOnExit(effectiveUid, activeSessionRef.current).catch(() => {});
+                        } else {
+                          flushChatArchiveOnExit(effectiveUid, sessionsRef.current).catch(() => {});
+                        }
+                      }
+                    }
                     setActiveSessionId(session.id);
                     if (session.modelTier) {
                       setSelectedModel(session.modelTier);
@@ -3791,32 +3758,6 @@ MANDATORY INSTRUCTIONS:
                   </div>
 
                   <div className="flex items-center gap-1 shrink-0 ml-1">
-                    {/* Cloud Control Button on each chat item */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleToggleSessionCloudSync(session.id);
-                      }}
-                      className={`w-6.5 h-6.5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                        session.cloudSyncEnabled
-                          ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-100/70 dark:hover:bg-blue-900/40'
-                          : 'opacity-50 group-hover:opacity-100 text-slate-400 hover:text-slate-600 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-slate-200 dark:hover:bg-[#3c4043]'
-                      }`}
-                      title={
-                        session.cloudSyncEnabled
-                          ? 'Cloud Sync: Enabled (Click to disable)'
-                          : 'Cloud Sync: Disabled (Click to enable)'
-                      }
-                      aria-label="Toggle cloud sync for this chat"
-                    >
-                      {session.cloudSyncEnabled ? (
-                        <Cloud className="w-3.5 h-3.5" />
-                      ) : (
-                        <CloudOff className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-
                     {/* Delete chat button */}
                     <button
                       type="button"
@@ -3846,6 +3787,14 @@ MANDATORY INSTRUCTIONS:
                 onClick={() => {
                   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
                     window.speechSynthesis.cancel();
+                  }
+                  const effectiveUid = currentUserUid || auth.currentUser?.uid || getCachedAuthUser()?.uid || null;
+                  if (effectiveUid && effectiveUid !== 'guest-user' && effectiveUid !== 'anonymous') {
+                    if (activeSessionRef.current) {
+                      flushActiveChatSessionOnExit(effectiveUid, activeSessionRef.current).catch(() => {});
+                    } else {
+                      flushChatArchiveOnExit(effectiveUid, sessionsRef.current).catch(() => {});
+                    }
                   }
                   onNavigateTab('tests');
                 }}
@@ -3936,33 +3885,6 @@ MANDATORY INSTRUCTIONS:
                 )}
               </AnimatePresence>
             </div>
-
-            {/* Cloud Sync Toggle Button */}
-            <button
-              type="button"
-              onClick={handleToggleCloudSync}
-              className={`w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-95 border-0 shadow-none shrink-0 ${
-                activeSession?.cloudSyncEnabled
-                  ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/70 font-bold'
-                  : 'text-[#5e5e5e] dark:text-[#9aa0a6] bg-transparent hover:bg-slate-100 dark:hover:bg-[#282a30]'
-              }`}
-              title={
-                activeSession?.cloudSyncEnabled
-                  ? 'Cloud Sync: On (Click to turn off)'
-                  : 'Cloud Sync: Off (Click to turn on)'
-              }
-              aria-label={
-                activeSession?.cloudSyncEnabled
-                  ? 'Cloud Sync Enabled (Click to disable)'
-                  : 'Cloud Sync Disabled (Click to enable)'
-              }
-            >
-              {activeSession?.cloudSyncEnabled ? (
-                <Cloud className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-              ) : (
-                <CloudOff className="w-4 h-4 shrink-0" />
-              )}
-            </button>
 
             {/* Persona Settings */}
             <button
@@ -4138,8 +4060,8 @@ MANDATORY INSTRUCTIONS:
                         onClick={() => setActiveStarterCategory(cat.id)}
                         className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs sm:text-[13px] font-bold transition-all duration-150 cursor-pointer select-none whitespace-nowrap outline-none border active:scale-95 ${
                           isActive
-                            ? 'bg-[#0b57d0] text-white border-[#0b57d0] dark:bg-[#a8c7fa] dark:text-[#041e49] dark:border-[#a8c7fa] shadow-xs'
-                            : 'bg-white hover:bg-[#f8fafd] dark:bg-[#1e2024] dark:hover:bg-[#282a30] text-[#1f1f1f] dark:text-[#e3e3e3] border-slate-300 dark:border-zinc-700 shadow-xs'
+                            ? 'bg-[#0b57d0] text-white border-[#0b57d0] dark:bg-[#a8c7fa] dark:text-[#041e49] dark:border-transparent shadow-xs'
+                            : 'bg-white hover:bg-[#f8fafd] dark:bg-[#1e2024] dark:hover:bg-[#282a30] text-[#1f1f1f] dark:text-[#e3e3e3] border-slate-300 dark:border-transparent shadow-xs'
                         }`}
                       >
                         <IconComp className="w-3.5 h-3.5" />
@@ -4287,7 +4209,7 @@ MANDATORY INSTRUCTIONS:
                             handleSendMessage(c.prompt);
                           }
                         }}
-                        className="group flex items-center gap-3.5 p-4 rounded-[24px] bg-white hover:bg-[#f8fafd] dark:bg-[#1e2024] dark:hover:bg-[#282a30] border border-slate-300 dark:border-zinc-700 shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer active:scale-[0.99] text-left w-full min-h-[64px]"
+                        className="group flex items-center gap-3.5 p-4 rounded-[24px] bg-white hover:bg-[#f8fafd] dark:bg-[#1e2024] dark:hover:bg-[#282a30] border border-slate-300 dark:border-transparent shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer active:scale-[0.99] text-left w-full min-h-[64px]"
                       >
                         <div className={`w-10 h-10 rounded-full shrink-0 flex items-center justify-center ${card.iconColor}`}>
                           <CardIcon className="w-5 h-5" />

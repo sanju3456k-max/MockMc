@@ -5,7 +5,6 @@ export const TEMPLATE_MATRICES = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chapter Notes: Matrices & Determinants</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
     <style>
         :root {
             --primary: #2563eb;
@@ -156,16 +155,25 @@ export const TEMPLATE_MATRICES = `<!DOCTYPE html>
         @media print {
             body {
                 background: #ffffff !important;
-                color: #000000 !important;
                 font-size: 11pt;
                 line-height: 1.5;
                 padding: 0 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
             h1, h2, h3 {
                 break-after: avoid;
                 page-break-after: avoid;
             }
-            img, table, blockquote, pre, .panel {
+            table {
+                break-inside: auto;
+                page-break-inside: auto;
+            }
+            tr {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+            img, blockquote, pre, .panel {
                 break-inside: avoid;
                 page-break-inside: avoid;
             }
@@ -276,24 +284,6 @@ export const TEMPLATE_MATRICES = `<!DOCTYPE html>
             </div>
         </details>
     </section>
-
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", function() {
-      if (window.renderMathInElement) {
-        renderMathInElement(document.body, {
-          delimiters: [
-            {left: '$$', right: '$$', display: true},
-            {left: '$', right: '$', display: false},
-            {left: '\\\\(', right: '\\\\)', display: false},
-            {left: '\\\\[', right: '\\\\]', display: true}
-          ],
-          throwOnError: false
-        });
-      }
-    });
-  </script>
 </body>
 </html>`;
 
@@ -303,7 +293,6 @@ export const TEMPLATE_LANDSCAPE_SLIDES = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>A4 Widescreen Slide Deck Reference</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
     <style>
         :root {
             --primary: #2563eb;
@@ -748,28 +737,10 @@ export const TEMPLATE_LANDSCAPE_SLIDES = `<!DOCTYPE html>
             <span>Page 4 of 4</span>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js"></script>
-    <script>
-      document.addEventListener("DOMContentLoaded", function() {
-        if (window.renderMathInElement) {
-          renderMathInElement(document.body, {
-            delimiters: [
-              {left: '$$', right: '$$', display: true},
-              {left: '$', right: '$', display: false},
-              {left: '\\\\(', right: '\\\\)', display: false},
-              {left: '\\\\[', right: '\\\\]', display: true}
-            ],
-            throwOnError: false
-          });
-        }
-      });
-    </script>
 </body>
 </html>`;
 
-// Default Blank Note Template
+// Default Blank Note Template with Rich Mathematical Revision Table & Formulas
 export const createNewNoteTemplate = (title: string) => {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -777,16 +748,18 @@ export const createNewNoteTemplate = (title: string) => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${title}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
     <style>
         :root {
-            --primary: #2563eb;
-            --primary-light: #eff6ff;
-            --primary-border: #dbeafe;
-            --text-main: #1e293b;
-            --text-muted: #64748b;
+            --primary: #0b57d0;
+            --primary-light: #e8f0fe;
+            --primary-border: #d2e3fc;
+            --text-main: #1f2937;
+            --text-muted: #5f6368;
             --bg-card: #ffffff;
             --bg-body: #ffffff;
+            --border-subtle: #e5e7eb;
+            --accent-green: #0f9d58;
+            --accent-amber: #f9ab00;
         }
 
         body {
@@ -794,60 +767,187 @@ export const createNewNoteTemplate = (title: string) => {
             width: 100%;
             max-width: 100%;
             margin: 0 auto;
-            padding: 12px;
+            padding: 16px;
             background-color: var(--bg-body);
             color: var(--text-main);
             line-height: 1.6;
         }
 
         header {
-            text-align: center;
+            text-align: left;
             margin-top: 0;
-            margin-bottom: 16px;
+            margin-bottom: 20px;
             border-bottom: 2px solid var(--primary-border);
-            padding-bottom: 10px;
+            padding-bottom: 12px;
         }
 
-        h1 { color: var(--primary); font-size: 1.8rem; margin-top: 0; margin-bottom: 4px; }
-        .subtitle { color: var(--text-muted); font-size: 0.95rem; }
-        h2 { color: #0f172a; border-bottom: 1px solid var(--primary-border); padding-bottom: 4px; margin-top: 20px; }
+        h1 { 
+            color: var(--primary); 
+            font-size: 1.85rem; 
+            margin: 0 0 4px 0; 
+            font-weight: 800; 
+            letter-spacing: -0.02em; 
+        }
+
+        .subtitle { 
+            color: var(--text-muted); 
+            font-size: 0.95rem; 
+            margin: 0; 
+            font-weight: 500; 
+        }
+
+        .tag-badge {
+            display: inline-block;
+            background: var(--primary-light);
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 0.75rem;
+            padding: 2px 10px;
+            border-radius: 9999px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        h2 { 
+            color: #1e293b; 
+            border-bottom: 1px solid var(--border-subtle); 
+            padding-bottom: 6px; 
+            margin-top: 24px; 
+            font-size: 1.25rem; 
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
         
         .panel {
             background: var(--bg-card);
-            border: 1px solid var(--primary-border);
+            border: 1px solid var(--border-subtle);
             border-left: 4px solid var(--primary);
+            border-radius: 10px;
+            padding: 14px 18px;
+            margin: 14px 0;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        }
+
+        .panel-success {
+            border-left-color: var(--accent-green);
+            background: #f0fdf4;
+        }
+
+        .math-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 0.95rem;
+            background: #ffffff;
             border-radius: 8px;
-            padding: 12px;
-            margin: 12px 0;
-            display: flow-root;
+            overflow: hidden;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .math-table th {
+            background: #0b57d0;
+            color: #ffffff;
+            padding: 10px 14px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.88rem;
+            letter-spacing: 0.02em;
+        }
+
+        .math-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border-subtle);
+            vertical-align: middle;
+        }
+
+        .math-table tr:nth-child(even) td {
+            background-color: #f8fafc;
+        }
+
+        .math-table tr:hover td {
+            background-color: #f1f5f9;
         }
 
         @page { size: A4 landscape; margin: 0; }
         @media print {
-          body { background: #fff; color: #000; font-size: 11pt; line-height: 1.5; }
+          body { background: #fff; font-size: 11pt; line-height: 1.5; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
-          img, table, blockquote, pre, .panel { break-inside: avoid; page-break-inside: avoid; }
+          table { break-inside: auto; page-break-inside: auto; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          img, blockquote, pre, .panel { break-inside: avoid; page-break-inside: avoid; }
           .no-print { display: none !important; }
         }
     </style>
 </head>
 <body>
     <header>
+        <span class="tag-badge">Revision Studio</span>
         <h1>${title}</h1>
-        <p class="subtitle">Study notes created on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+        <p class="subtitle">Curated mathematics revision note · Created on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
     </header>
 
     <section>
-        <h2>1. Overview & Key Points</h2>
-        <p>Write your revision notes, formulas, and observations here.</p>
-        
+        <h2>1. Core Formulae & High-Yield Results</h2>
         <div class="panel">
-            <strong>Key Formula:</strong>
-            <p>$E = mc^2$ or $\int_{a}^{b} f(x)\,dx = F(b) - F(a)$</p>
+            <strong>Key Identifiers & Theorems:</strong>
+            <p style="margin: 8px 0 0 0;">
+                Calculus Limit: $\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1$ &nbsp;·&nbsp;
+                Definite Integral: $\\int_{a}^{b} f(x)\\,dx = F(b) - F(a)$ &nbsp;·&nbsp;
+                Euler's Identity: $e^{i\\pi} + 1 = 0$
+            </p>
+        </div>
+    </section>
+
+    <section>
+        <h2>2. Problem Patterns & Telegraphic Short Tricks</h2>
+        <table class="math-table">
+            <thead>
+                <tr>
+                    <th style="width: 60px;">No.</th>
+                    <th>Question Pattern / Focus</th>
+                    <th>Core Mathematical Concept</th>
+                    <th>Telegraphic Recall / Short Trick & Notice Point</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>1</strong></td>
+                    <td>$\\lim_{x \\to 3} \\frac{x-3}{\\sqrt{x-2} - \\sqrt{4-x}}$</td>
+                    <td>$\\frac{0}{0}$ Indeterminate Form</td>
+                    <td><strong>Rationalization Trick:</strong> Multiply & divide by conjugate $(\\sqrt{x-2} + \\sqrt{4-x})$. Value evaluates directly to $\\mathbf{1}$.</td>
+                </tr>
+                <tr>
+                    <td><strong>2</strong></td>
+                    <td>$\\lim_{x \\to \\infty} \\left(\\sqrt{x^2 + 2x} - x\\right)$</td>
+                    <td>$\\infty - \\infty$ Algebraic Form</td>
+                    <td><strong>Conjugate Expansion:</strong> $\\frac{2x}{\\sqrt{x^2+2x} + x} \\to \\frac{2}{1+1} = \\mathbf{1}$.</td>
+                </tr>
+                <tr>
+                    <td><strong>3</strong></td>
+                    <td>$\\int \\frac{1}{x^2 + a^2}\\,dx$</td>
+                    <td>Inverse Trigonometric Primitive</td>
+                    <td><strong>Standard Form:</strong> $\\frac{1}{a} \\arctan\\left(\\frac{x}{a}\\right) + C$. Check coefficient of $a$ carefully.</td>
+                </tr>
+                <tr>
+                    <td><strong>4</strong></td>
+                    <td>Matrix Inversion for $A = \\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$</td>
+                    <td>Linear Systems & Determinants</td>
+                    <td><strong>Fast Inverse:</strong> $A^{-1} = \\frac{1}{ad - bc} \\begin{bmatrix} d & -b \\\\ -c & a \\end{bmatrix}$. Swap diagonals, negate off-diagonals.</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>3. Observations & Key Practice Takeaways</h2>
+        <div class="panel panel-success">
+            <strong>Pro Tip:</strong> Write any equation inside single dollar signs <code>$...$</code> for inline equations or double dollar signs <code>$$...$$</code> for centered equations. Notes Studio automatically formats and scales all mathematical notation universally without requiring any script tags!
         </div>
     </section>
 </body>
 </html>`;
-}
+};
 
 

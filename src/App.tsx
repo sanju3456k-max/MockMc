@@ -285,6 +285,7 @@ export default function App() {
         document.documentElement.classList.remove('dark');
         localStorage.setItem(LOCAL_STORAGE_THEME_KEY, 'light');
       }
+      window.dispatchEvent(new Event('theme-changed'));
 
       // Dynamically update status bar theme-color to match app page header background exactly
       // Gemini Chatbot header: #ffffff (light) / #131314 (dark)

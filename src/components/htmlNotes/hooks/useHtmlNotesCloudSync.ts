@@ -7,8 +7,10 @@ import {
   loadLocalProjects,
   subscribeToSyncStatus,
   subscribeToFirestoreProjects,
-  queueFirestoreSync
+  queueFirestoreSync,
+  reconcileHtmlProjects
 } from '../../../lib/htmlNotesSync';
+import { getCachedAuthUser } from '../../../lib/storage';
 import {
   DriveSyncStatus,
   subscribeToDriveSyncStatus,
@@ -107,11 +109,27 @@ export function useHtmlNotesCloudSync({
         unsubFirestoreRef.current();
         unsubFirestoreRef.current = null;
       }
+    } else if (studioView === 'home') {
+      const user = auth.currentUser;
+      if (user && !unsubFirestoreRef.current) {
+        // 0 READS on reload: Only attach cold-start Firestore listener if local projects are completely empty
+        const localProjs = loadLocalProjects(undefined, user.uid);
+        if (localProjs.length === 0) {
+          unsubFirestoreRef.current = subscribeToFirestoreProjects(user.uid, (remoteProjects) => {
+            if (remoteProjects && remoteProjects.length > 0) {
+              if (studioViewRef.current === 'editor') return; // strictly guard open editor
+              setProjects(remoteProjects);
+              projectsRef.current = remoteProjects;
+            }
+          });
+        }
+      }
     }
-  }, [studioView]);
+  }, [studioView, setProjects]);
 
   useEffect(() => {
-    const local = loadLocalProjects(TEMPLATE_MATRICES);
+    const cachedUid = typeof window !== 'undefined' ? getCachedAuthUser()?.uid || null : null;
+    const local = loadLocalProjects(TEMPLATE_MATRICES, cachedUid);
     setProjects(local);
     projectsRef.current = local;
     if (local.length > 0) {
@@ -137,6 +155,19 @@ export function useHtmlNotesCloudSync({
       setIsDriveAuth(status.state !== 'disconnected');
     });
 
+    const handleReconciled = (e: Event) => {
+      const customEvent = e as CustomEvent<HtmlProject[]>;
+      const reconciled = customEvent.detail;
+      if (reconciled && reconciled.length > 0) {
+        if (studioViewRef.current === 'editor') return; // strictly guard open editor
+        setProjects(reconciled);
+        projectsRef.current = reconciled;
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('html-notes-reconciled', handleReconciled);
+    }
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (unsubFirestoreRef.current) {
         unsubFirestoreRef.current();
@@ -146,11 +177,14 @@ export function useHtmlNotesCloudSync({
       if (user) {
         setIsDriveAuth(true);
         const userLocal = loadLocalProjects(TEMPLATE_MATRICES, user.uid);
-        if (userLocal.length > 0) {
-          setProjects(userLocal);
-          projectsRef.current = userLocal;
-          if (!userLocal.some(p => p.id === activeProjectIdRef.current)) {
-            const firstProj = userLocal[0];
+        const currentProjs = projectsRef.current;
+        const hasPending = currentProjs && currentProjs.some(p => p._syncStatus === 'pending' || (p.files && p.files.some(f => f._syncStatus === 'pending')));
+        const finalProjects = hasPending ? reconcileHtmlProjects(currentProjs, userLocal) : userLocal;
+        if (finalProjects.length > 0) {
+          setProjects(finalProjects);
+          projectsRef.current = finalProjects;
+          if (!finalProjects.some(p => p.id === activeProjectIdRef.current)) {
+            const firstProj = finalProjects[0];
             setActiveProjectId(firstProj.id);
             activeProjectIdRef.current = firstProj.id;
             if (firstProj.files && firstProj.files.length > 0) {
@@ -163,15 +197,18 @@ export function useHtmlNotesCloudSync({
           }
         }
 
-        // Only attach real-time Firestore subscription when on home view, never while working inside an open project
+        // Only attach real-time Firestore subscription if user has 0 local projects (cold start on new device)
         if (studioViewRef.current === 'home') {
-          unsubFirestoreRef.current = subscribeToFirestoreProjects(user.uid, (remoteProjects) => {
-            if (remoteProjects && remoteProjects.length > 0) {
-              if (studioViewRef.current === 'editor') return; // strictly guard open editor
-              setProjects(remoteProjects);
-              projectsRef.current = remoteProjects;
-            }
-          });
+          const userProjs = loadLocalProjects(undefined, user.uid);
+          if (userProjs.length === 0 && !unsubFirestoreRef.current) {
+            unsubFirestoreRef.current = subscribeToFirestoreProjects(user.uid, (remoteProjects) => {
+              if (remoteProjects && remoteProjects.length > 0) {
+                if (studioViewRef.current === 'editor') return; // strictly guard open editor
+                setProjects(remoteProjects);
+                projectsRef.current = remoteProjects;
+              }
+            });
+          }
         }
       } else {
         setIsDriveAuth(false);
@@ -197,6 +234,9 @@ export function useHtmlNotesCloudSync({
       if (unsubFirestoreRef.current) {
         unsubFirestoreRef.current();
         unsubFirestoreRef.current = null;
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('html-notes-reconciled', handleReconciled);
       }
       unsubSync();
       unsubDrive();

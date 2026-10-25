@@ -115,6 +115,25 @@ export const HtmlNotesPreviewPane = React.forwardRef<HtmlNotesPreviewPaneHandle,
     }
   }, [activeSelectionPane]);
 
+  useEffect(() => {
+    const iframe = iframeRef?.current;
+    if (!iframe) return;
+    const syncKaTeX = () => {
+      try {
+        if (iframe.contentWindow) {
+          (iframe.contentWindow as any).katex = (window as any).katex;
+          (iframe.contentWindow as any).renderMathInElement = (window as any).renderMathInElement;
+          if (typeof (iframe.contentWindow as any).renderKaTeXMathInDocument === 'function') {
+            (iframe.contentWindow as any).renderKaTeXMathInDocument();
+          }
+        }
+      } catch (e) {}
+    };
+    iframe.addEventListener('load', syncKaTeX);
+    syncKaTeX();
+    return () => iframe.removeEventListener('load', syncKaTeX);
+  }, [srcDoc, iframeRef]);
+
 
   const handleSelectionCheck = useCallback(() => {
     let selText = '';
@@ -671,7 +690,7 @@ export const HtmlNotesPreviewPane = React.forwardRef<HtmlNotesPreviewPaneHandle,
           title="Notes Studio Preview Engine"
           srcDoc={srcDoc}
           className="w-full h-full border-0 block bg-white dark:bg-[#14161d]"
-          style={{ width: '100%', height: '100%', border: 0, display: 'block', pointerEvents: isResizing ? 'none' : 'auto' }}
+          style={{ width: '100%', height: '100%', border: 0, display: 'block', pointerEvents: isResizing ? 'none' : 'auto', touchAction: 'pan-x pan-y' }}
         />
 
         {/* Floating Zoom Controls Pill */}

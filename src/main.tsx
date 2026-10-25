@@ -7,8 +7,12 @@ import 'material-symbols';
 
 // Expose KaTeX & auto-render globally on top window so all preview iframes & print windows can inherit them instantly with 0ms delay
 if (typeof window !== 'undefined') {
-  (window as any).katex = katex;
-  (window as any).renderMathInElement = renderMathInElement;
+  const actualKatex = (katex as any)?.renderToString ? katex : ((katex as any)?.default || katex);
+  const actualRenderMath = typeof renderMathInElement === 'function'
+    ? renderMathInElement
+    : ((renderMathInElement as any)?.default || renderMathInElement);
+  (window as any).katex = actualKatex;
+  (window as any).renderMathInElement = actualRenderMath;
 }
 
 // Official Material 3 Web Components Registrations

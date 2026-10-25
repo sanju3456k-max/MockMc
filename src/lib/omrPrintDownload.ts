@@ -95,49 +95,7 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
-/**
- * Opens a clean standalone document in a new top-level browser tab/window
- * to invoke the native device / OS print modal without iframe restrictions.
- */
-function openNativePrintWindow(
-  fullHtml: string,
-  documentTitle: string
-): boolean {
-  try {
-    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-    const blobUrl = URL.createObjectURL(blob);
 
-    // 1. Try opening standalone top-level window via Blob URL
-    const printWin = window.open(blobUrl, '_blank');
-    if (printWin) {
-      printWin.focus();
-      setTimeout(() => {
-        try {
-          URL.revokeObjectURL(blobUrl);
-        } catch {}
-      }, 120000);
-      return true;
-    }
-  } catch (err) {
-    console.warn('Blob window open failed:', err);
-  }
-
-  // 2. Try window.open about:blank and document.write
-  try {
-    const printWin = window.open('', '_blank');
-    if (printWin) {
-      printWin.document.open();
-      printWin.document.write(fullHtml);
-      printWin.document.close();
-      printWin.focus();
-      return true;
-    }
-  } catch (err) {
-    console.warn('Blank window open failed:', err);
-  }
-
-  return false;
-}
 
 /**
  * Extracts all compiled CSS rules from document.styleSheets into a single clean string
@@ -513,15 +471,7 @@ export async function triggerSystemPrint(
 </html>`;
 
   // =========================================================================
-  // Primary Method: Standalone Top-Level Print Window (bypasses iframe sandbox restrictions 100%)
-  // =========================================================================
-  const opened = openNativePrintWindow(fullHtml, documentTitle);
-  if (opened) {
-    return;
-  }
-
-  // =========================================================================
-  // Secondary Method: In-Page Seamless Print Portal
+  // Primary Method: In-Page Seamless Print Portal (Never opens a new tab or blob URL)
   // =========================================================================
   const portalId = 'omr-print-active-portal';
   let portalEl = document.getElementById(portalId);
@@ -909,14 +859,11 @@ export async function triggerOmrSheetPrint(
 </body>
 </html>`;
 
-  const success = openNativePrintWindow(fullHtml, examTitle || 'OMR Bubble Sheet');
-
-  if (!success) {
-    // Fallback if popup window was blocked
-    const existingPortal = document.getElementById('omr-print-active-portal');
-    if (existingPortal && existingPortal.parentNode) {
-      existingPortal.parentNode.removeChild(existingPortal);
-    }
+  // Direct In-Page Print Portal (Never opens a new tab or blob URL)
+  const existingPortal = document.getElementById('omr-print-active-portal');
+  if (existingPortal && existingPortal.parentNode) {
+    existingPortal.parentNode.removeChild(existingPortal);
+  }
 
     const portal = document.createElement('div');
     portal.id = 'omr-print-active-portal';
@@ -981,12 +928,11 @@ export async function triggerOmrSheetPrint(
     `;
     document.head.appendChild(styleEl);
 
-    try {
-      window.focus();
-      window.print();
-    } catch (err) {
-      console.error('Window print failed:', err);
-    }
+  try {
+    window.focus();
+    window.print();
+  } catch (err) {
+    console.error('Window print failed:', err);
   }
 }
 
@@ -1336,7 +1282,87 @@ export async function triggerMultiUpOmrPrint(
 </body>
 </html>`;
 
-  openNativePrintWindow(fullHtml, printTitle);
+  // Direct In-Page Print Portal (Never opens a new tab or blob URL)
+  const portalId = 'omr-print-active-portal';
+  let portalEl = document.getElementById(portalId);
+  if (portalEl && portalEl.parentNode) {
+    portalEl.parentNode.removeChild(portalEl);
+  }
+
+  portalEl = document.createElement('div');
+  portalEl.id = portalId;
+  portalEl.innerHTML = pagesHtml;
+  document.body.appendChild(portalEl);
+
+  const styleId = 'omr-print-dynamic-style';
+  let dynamicStyle = document.getElementById(styleId) as HTMLStyleElement | null;
+  if (!dynamicStyle) {
+    dynamicStyle = document.createElement('style');
+    dynamicStyle.id = styleId;
+    document.head.appendChild(dynamicStyle);
+  }
+
+  dynamicStyle.textContent = `
+    @media print {
+      @page {
+        size: ${isPortrait ? 'A4 portrait' : 'A4 landscape'};
+        margin: 0mm !important;
+      }
+      *, *::before, *::after {
+        box-sizing: border-box !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      html, body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: ${pageW} !important;
+      }
+      body > *:not(#${portalId}) {
+        display: none !important;
+      }
+      #${portalId} {
+        display: block !important;
+        position: static !important;
+        width: ${pageW} !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+      }
+      .a4-page:last-child {
+        page-break-after: auto !important;
+        break-after: auto !important;
+      }
+    }
+  `;
+
+  await new Promise(resolve => setTimeout(resolve, 80));
+
+  const originalDocTitle = document.title;
+  document.title = printTitle;
+
+  const cleanup = () => {
+    document.title = originalDocTitle;
+    if (portalEl && portalEl.parentNode) {
+      portalEl.parentNode.removeChild(portalEl);
+    }
+    if (dynamicStyle && dynamicStyle.parentNode) {
+      dynamicStyle.parentNode.removeChild(dynamicStyle);
+    }
+    window.removeEventListener('afterprint', cleanup);
+  };
+
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(cleanup, 45000);
+
+  try {
+    window.focus();
+    window.print();
+  } catch (err) {
+    console.warn('In-page print error:', err);
+  }
 }
 
 /**

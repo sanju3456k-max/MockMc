@@ -30,13 +30,19 @@ service cloud.firestore {
       }
     }
 
-    // Chat Archives: Dedicated single-document compressed archive per user
+    // Chat Archives: Deprecated legacy collection. Reads, creates, and updates are forbidden. Only delete is permitted to purge old documents.
     match /chat_archives/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, create, update: if false;
+      allow delete: if isOwner(userId);
     }
 
-    // Notes Manifests: Single-document authoritative manifest per user
+    // Notes Manifests: Deprecated and disarmed (no cloud reads or writes permitted)
     match /notes_manifests/{userId} {
+      allow read, write: if false;
+    }
+
+    // User Sync Beacons: Single lightweight revision tracker per user
+    match /user_sync_beacons/{userId} {
       allow read, write: if isOwner(userId);
     }
 
