@@ -682,18 +682,34 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
 
   // Visual Canvas Edit Mode state (Google Docs live preview inline editing)
   const [isVisualEditActive, setIsVisualEditActive] = useState<boolean>(false);
+  const isVisualEditActiveRef = useRef<boolean>(false);
+  useEffect(() => {
+    isVisualEditActiveRef.current = isVisualEditActive;
+  }, [isVisualEditActive]);
 
   const handleToggleVisualEdit = useCallback(() => {
     setIsVisualEditActive((prev) => {
       const next = !prev;
-      if (iframeRef.current?.contentWindow) {
-        try {
-          iframeRef.current.contentWindow.postMessage({
-            type: 'SET_EDIT_MODE',
-            active: next
-          }, '*');
-        } catch (e) {}
-      }
+      isVisualEditActiveRef.current = next;
+
+      // Broadcast immediately to both regular preview and full-screen iframes
+      const targets = [iframeRef.current, fullScreenIframeRef.current];
+      targets.forEach((targetIframe) => {
+        if (targetIframe?.contentWindow) {
+          try {
+            const win = targetIframe.contentWindow as any;
+            if (typeof win.applyEditModeState === 'function') {
+              win.applyEditModeState(next);
+            }
+            win.postMessage({
+              type: 'SET_EDIT_MODE',
+              active: next,
+              enabled: next
+            }, '*');
+          } catch (e) {}
+        }
+      });
+
       return next;
     });
   }, []);
@@ -734,7 +750,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
           if (isUndoingRedoingRef.current) return;
 
           // 2. ONLY accept updates when Visual Edit Mode is explicitly enabled!
-          if (!isVisualEditActive) return;
+          if (!isVisualEditActiveRef.current) return;
 
           // 3. If the user is currently typing in the editor pane, do not let iframe echo overwrite the editor
           const activeEl = document.activeElement;
@@ -1193,7 +1209,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
       isDark,
       zoomLevel,
       viewMode,
-      isPreviewEditMode: isVisualEditActive
+      isPreviewEditMode: isVisualEditActiveRef.current
     });
 
     const fileChanged = prevActiveFileIdRef.current !== activeFileId;
@@ -1215,7 +1231,7 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
 
     cachedIframeSrcDocRef.current = generated;
     return generated;
-  }, [code, sideMarginMm, verticalMarginMm, totalLeftMarginMm, fontSizePx, viewportMode, isDark, viewMode, isVisualEditActive, activeFileId]);
+  }, [code, sideMarginMm, verticalMarginMm, totalLeftMarginMm, fontSizePx, viewportMode, isDark, viewMode, activeFileId]);
 
   return (
     <div className={`studio ${isDark ? 'dark' : ''} ${isResizing ? 'is-resizing' : ''} ${studioView === 'home' ? 'is-home-view' : ''} ${viewMode === 'preview' ? 'is-preview-active' : ''}`}>

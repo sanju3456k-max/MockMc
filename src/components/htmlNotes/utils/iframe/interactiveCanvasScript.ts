@@ -157,7 +157,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
         el.setAttribute('contenteditable', 'false');
       });
 
-      var sheets = document.querySelectorAll('.a4-sheet');
+      var sheets = document.querySelectorAll('.a4-sheet, .slide');
       sheets.forEach(function(sheet) {
         sheet.contentEditable = 'false';
         sheet.setAttribute('contenteditable', 'false');
@@ -187,7 +187,7 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
       // Read-only state initialization or toggling must NEVER trigger an HTML update back to parent
     } else {
       document.body.classList.add('studio-preview-editable');
-      var sheets = document.querySelectorAll('.a4-sheet');
+      var sheets = document.querySelectorAll('.a4-sheet, .slide');
       if (sheets.length > 0) {
         sheets.forEach(function(sheet) {
           sheet.contentEditable = 'true';
@@ -217,8 +217,9 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
   // Listen for Live Edit Mode toggles and command messages from parent window
   window.addEventListener('message', function(e) {
     if (!e.data || typeof e.data !== 'object') return;
-    if (e.data.type === 'SET_EDIT_MODE' || e.data.type === 'STUDIO_SET_EDIT_MODE') {
-      applyEditModeState(Boolean(e.data.active));
+    if (e.data.type === 'SET_EDIT_MODE' || e.data.type === 'STUDIO_SET_EDIT_MODE' || e.data.type === 'SET_PREVIEW_EDIT_MODE') {
+      var act = e.data.active !== undefined ? e.data.active : (e.data.enabled !== undefined ? e.data.enabled : true);
+      applyEditModeState(Boolean(act));
     } else if (e.data.type === 'STUDIO_FLUSH_CHANGES') {
       notifyParentOfHtmlChange(true);
     } else if (e.data.type === 'STUDIO_RESET_DIRTY') {
@@ -1591,8 +1592,9 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
   window.addEventListener('message', function(e) {
     if (!e.data) return;
 
-    if (e.data.type === 'SET_PREVIEW_EDIT_MODE') {
-      applyEditModeState(Boolean(e.data.enabled));
+    if (e.data.type === 'SET_PREVIEW_EDIT_MODE' || e.data.type === 'SET_EDIT_MODE' || e.data.type === 'STUDIO_SET_EDIT_MODE') {
+      var act = e.data.active !== undefined ? e.data.active : (e.data.enabled !== undefined ? e.data.enabled : true);
+      applyEditModeState(Boolean(act));
     } else if (e.data.type === 'STUDIO_INSERT_IMAGE' && e.data.base64) {
       if (window.__useCanvasImageEngine) return;
       insertImageInDocument(e.data.base64, e.data.fileName);
@@ -1947,8 +1949,12 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     } catch(e) {}
   }
 
-  if (document.readyState === 'complete') initDoc();
-  else window.addEventListener('load', initDoc);
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    initDoc();
+  } else {
+    document.addEventListener('DOMContentLoaded', initDoc);
+    window.addEventListener('load', initDoc);
+  }
 })();
 </script>
 `;

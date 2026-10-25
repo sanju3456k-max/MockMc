@@ -126,13 +126,33 @@ export const HtmlNotesPreviewPane = React.forwardRef<HtmlNotesPreviewPaneHandle,
           if (typeof (iframe.contentWindow as any).renderKaTeXMathInDocument === 'function') {
             (iframe.contentWindow as any).renderKaTeXMathInDocument();
           }
+          if (typeof (iframe.contentWindow as any).applyEditModeState === 'function') {
+            (iframe.contentWindow as any).applyEditModeState(isVisualEditActive);
+          }
         }
       } catch (e) {}
     };
     iframe.addEventListener('load', syncKaTeX);
     syncKaTeX();
     return () => iframe.removeEventListener('load', syncKaTeX);
-  }, [srcDoc, iframeRef]);
+  }, [srcDoc, iframeRef, isVisualEditActive]);
+
+  // Synchronize Live Visual Edit Mode with the iframe content window
+  useEffect(() => {
+    const iframe = iframeRef?.current;
+    if (!iframe?.contentWindow) return;
+    try {
+      const win = iframe.contentWindow as any;
+      if (typeof win.applyEditModeState === 'function') {
+        win.applyEditModeState(isVisualEditActive);
+      }
+      win.postMessage({
+        type: 'SET_EDIT_MODE',
+        active: isVisualEditActive,
+        enabled: isVisualEditActive
+      }, '*');
+    } catch (e) {}
+  }, [isVisualEditActive, iframeRef]);
 
 
   const handleSelectionCheck = useCallback(() => {
