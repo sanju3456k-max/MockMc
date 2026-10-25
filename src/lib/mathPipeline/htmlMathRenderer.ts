@@ -96,7 +96,8 @@ export function renderMathInDomSubtree(rootNode: Node): void {
   // 2. Display brackets: \[ ... \]
   // 3. Inline paren: \( ... \)
   // 4. Single dollars: $ ... $
-  const combinedMathRegex = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^\$\n]+?)\$/g;
+  // 5. Bare AMS LaTeX Environments: \begin{matrix}...\end{matrix}, \begin{bmatrix}...\end{bmatrix}, etc.
+  const combinedMathRegex = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^\$\n]+?)\$|(\\begin\{(?:b|p|v|V|small)?matrix|cases|aligned|array\}[\s\S]+?\\end\{(?:b|p|v|V|small)?matrix|cases|aligned|array\})/g;
 
   for (const textNode of textNodes) {
     const text = textNode.nodeValue;
@@ -120,8 +121,8 @@ export function renderMathInDomSubtree(rootNode: Node): void {
       }
 
       // Identify delimiter type
-      const isDisplay = Boolean(match[1] || match[2]);
-      const mathContent = (match[1] || match[2] || match[3] || match[4] || '').trim();
+      const isDisplay = Boolean(match[1] || match[2] || match[5]);
+      const mathContent = (match[1] || match[2] || match[3] || match[4] || match[5] || '').trim();
 
       const renderedHtml = renderKatexToString(mathContent, {
         displayMode: isDisplay,
@@ -157,14 +158,14 @@ function renderMathInHtmlViaRegex(html: string): string {
   // Regex that isolates tags and text
   return html.replace(/(<[^>]+>)|([^<]+)/g, (match, tag, text) => {
     if (tag) return tag;
-    if (!text || (!text.includes('$') && !text.includes('\\(') && !text.includes('\\['))) {
+    if (!text || (!text.includes('$') && !text.includes('\\(') && !text.includes('\\[') && !text.includes('\\begin'))) {
       return text;
     }
 
-    const mathPattern = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^\$\n]+?)\$/g;
-    return text.replace(mathPattern, (_m: string, d1: string, d2: string, i1: string, i2: string) => {
-      const isDisplay = Boolean(d1 || d2);
-      const math = (d1 || d2 || i1 || i2 || '').trim();
+    const mathPattern = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^\$\n]+?)\$|(\\begin\{(?:b|p|v|V|small)?matrix|cases|aligned|array\}[\s\S]+?\\end\{(?:b|p|v|V|small)?matrix|cases|aligned|array\})/g;
+    return text.replace(mathPattern, (_m: string, d1: string, d2: string, i1: string, i2: string, b1: string) => {
+      const isDisplay = Boolean(d1 || d2 || b1);
+      const math = (d1 || d2 || i1 || i2 || b1 || '').trim();
       return renderKatexToString(math, {
         displayMode: isDisplay,
         addScrollWrapper: isDisplay,

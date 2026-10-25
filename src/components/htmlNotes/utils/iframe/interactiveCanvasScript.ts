@@ -276,6 +276,22 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
 
   window.applyEditModeState = applyEditModeState;
 
+  // Caret focus delegation on click when edit mode is active
+  document.addEventListener('pointerdown', function(e) {
+    if (!window.__isEditModeActive) return;
+    var target = e.target;
+    if (!target) return;
+    if (target.closest('.doc-img-wrapper, .doc-resize-handle, .doc-img-toolbar, #studio-slide-element-toolbar, .no-print')) {
+      return;
+    }
+    var block = target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, div.panel, div.callout, .a4-sheet');
+    if (block && block.getAttribute('contenteditable') !== 'false') {
+      try {
+        block.focus();
+      } catch(_) {}
+    }
+  }, true);
+
   // Listen for Live Edit Mode toggles and command messages from parent window
   window.addEventListener('message', function(e) {
     if (!e.data || typeof e.data !== 'object') return;
@@ -415,22 +431,32 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     function scalePairs(str, o, c, l, r) {
       var out = '', idx = 0;
       while (idx < str.length) {
-        if (str[idx] === o) {
+        if (str.indexOf(o, idx) === idx) {
           var pfx = str.slice(Math.max(0, idx - 6), idx);
-          if (/\\(left|right)$/.test(pfx) || /\\$/.test(pfx)) { out += str[idx]; idx++; continue; }
-          var d = 1, j = idx + 1, tall = false;
+          if (/\\(left|right)$/.test(pfx) || /\\$/.test(pfx)) {
+            out += str.slice(idx, idx + o.length);
+            idx += o.length;
+            continue;
+          }
+          var d = 1, j = idx + o.length, tall = false;
           while (j < str.length && d > 0) {
             if (str[j] === '\\') {
               var rem = str.slice(j);
-              if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array)\b/.test(rem)) tall = true;
-              j += 2; continue;
+              if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array|int|iint|iiint|oint|sum|prod|lim)\b/.test(rem)) tall = true;
+              j++;
+              if (j < str.length && /[a-zA-Z]/.test(str[j])) {
+                while (j < str.length && /[a-zA-Z]/.test(str[j])) j++;
+              } else if (j < str.length) {
+                j++;
+              }
+              continue;
             }
-            if (str[j] === o) d++;
-            else if (str[j] === c) d--;
+            if (str.indexOf(o, j) === j) { d++; j += o.length; continue; }
+            else if (str.indexOf(c, j) === j) { d--; j += c.length; continue; }
             j++;
           }
           if (d === 0 && tall) {
-            var inside = str.slice(idx + 1, j - 1);
+            var inside = str.slice(idx + o.length, j - c.length);
             out += l + scalePairs(inside, o, c, l, r) + r;
             idx = j;
             continue;
@@ -444,6 +470,14 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
 
     s = scalePairs(s, '(', ')', '\\left(', '\\right)');
     s = scalePairs(s, '[', ']', '\\left[', '\\right]');
+    s = scalePairs(s, '\\{', '\\}', '\\left\\{', '\\right\\}');
+
+    if (!s.startsWith('\\displaystyle') && !s.startsWith('\\textstyle')) {
+      if (/\\(?:frac|dfrac|cfrac|int|iint|iiint|oint|sum|prod|lim|matrix|bmatrix|pmatrix|vmatrix|cases)\b/.test(s)) {
+        s = '\\displaystyle ' + s;
+      }
+    }
+
     return s;
   }
 
@@ -453,7 +487,8 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
 
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode: function(node) {
-        if (!node.nodeValue || node.nodeValue.indexOf('$') === -1) return NodeFilter.FILTER_REJECT;
+        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+        if (node.nodeValue.indexOf('$') === -1 && node.nodeValue.indexOf('\\begin') === -1) return NodeFilter.FILTER_REJECT;
         var p = node.parentElement;
         if (!p) return NodeFilter.FILTER_REJECT;
         var tag = p.tagName.toLowerCase();
@@ -466,11 +501,11 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
     var textNodes = [];
     while (walker.nextNode()) textNodes.push(walker.currentNode);
 
-    var mathPattern = /\\$\\$([\\s\\S]+?)\\$\\$|\\$([^\\$\\n]+?)\\$/g;
+    var mathPattern = /\\$\\$([\\s\\S]+?)\\$\\$|\\$([^\\$\\n]+?)\\$|(\\begin\{(?:b|p|v|V|small)?matrix|cases|aligned|array\}[\\s\\S]+?\\end\{(?:b|p|v|V|small)?matrix|cases|aligned|array\})/g;
     for (var i = 0; i < textNodes.length; i++) {
       var tn = textNodes[i];
       var text = tn.nodeValue;
-      if (!text || text.indexOf('$') === -1) continue;
+      if (!text || (text.indexOf('$') === -1 && text.indexOf('\\begin') === -1)) continue;
 
       mathPattern.lastIndex = 0;
       if (!mathPattern.test(text)) continue;
@@ -487,8 +522,8 @@ export function getInteractiveCanvasScript(isPreviewEditMode: boolean = false): 
         if (start > lastIdx) {
           frag.appendChild(document.createTextNode(text.substring(lastIdx, start)));
         }
-        var isDisplay = Boolean(match[1]);
-        var math = normalizeMathFormula(match[1] || match[2] || '');
+        var isDisplay = Boolean(match[1] || match[3]);
+        var math = normalizeMathFormula(match[1] || match[2] || match[3] || '');
 
         try {
           var rendered = k.renderToString(math, {

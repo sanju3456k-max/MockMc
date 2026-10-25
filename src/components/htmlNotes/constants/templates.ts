@@ -213,27 +213,27 @@ export const TEMPLATE_MATRICES = `<!DOCTYPE html>
                 <tr>
                     <td><strong>Row Matrix</strong></td>
                     <td>Has only one row ($m = 1$)</td>
-                    <td>[ 1 &nbsp; 2 &nbsp; 5 ]</td>
+                    <td>$\\begin{bmatrix} 1 & 2 & 5 \\end{bmatrix}$</td>
                 </tr>
                 <tr>
                     <td><strong>Column Matrix</strong></td>
                     <td>Has only one column ($n = 1$)</td>
-                    <td>[3]<br>[4]</td>
+                    <td>$\\begin{bmatrix} 3 \\\\ 4 \\end{bmatrix}$</td>
                 </tr>
                 <tr>
                     <td><strong>Square Matrix</strong></td>
                     <td>Number of rows equals columns ($m = n$)</td>
-                    <td>2 × 2 or 3 × 3 matrix</td>
+                    <td>$\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$</td>
                 </tr>
                 <tr>
                     <td><strong>Diagonal Matrix</strong></td>
                     <td>All non-diagonal elements are zero</td>
-                    <td>Diag(2, 5, -1)</td>
+                    <td>$\\begin{bmatrix} 2 & 0 & 0 \\\\ 0 & 5 & 0 \\\\ 0 & 0 & -1 \\end{bmatrix}$</td>
                 </tr>
                 <tr>
                     <td><strong>Identity Matrix ($I$)</strong></td>
                     <td>All diagonal elements are 1</td>
-                    <td><div style="font-family: monospace;">[1 0]<br>[0 1]</div></td>
+                    <td>$\\begin{bmatrix} 1 & 0 \\\\ 0 & 1 \\end{bmatrix}$</td>
                 </tr>
             </tbody>
         </table>

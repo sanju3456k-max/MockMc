@@ -251,22 +251,32 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
               function scalePairs(str, o, c, l, r) {
                 var out = '', idx = 0;
                 while (idx < str.length) {
-                  if (str[idx] === o) {
+                  if (str.indexOf(o, idx) === idx) {
                     var pfx = str.slice(Math.max(0, idx - 6), idx);
-                    if (/\\(left|right)$/.test(pfx) || /\\$/.test(pfx)) { out += str[idx]; idx++; continue; }
-                    var d = 1, j = idx + 1, tall = false;
+                    if (/\\(left|right)$/.test(pfx) || /\\$/.test(pfx)) {
+                      out += str.slice(idx, idx + o.length);
+                      idx += o.length;
+                      continue;
+                    }
+                    var d = 1, j = idx + o.length, tall = false;
                     while (j < str.length && d > 0) {
                       if (str[j] === '\\') {
                         var rem = str.slice(j);
-                        if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array)\b/.test(rem)) tall = true;
-                        j += 2; continue;
+                        if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array|int|iint|iiint|oint|sum|prod|lim)\b/.test(rem)) tall = true;
+                        j++;
+                        if (j < str.length && /[a-zA-Z]/.test(str[j])) {
+                          while (j < str.length && /[a-zA-Z]/.test(str[j])) j++;
+                        } else if (j < str.length) {
+                          j++;
+                        }
+                        continue;
                       }
-                      if (str[j] === o) d++;
-                      else if (str[j] === c) d--;
+                      if (str.indexOf(o, j) === j) { d++; j += o.length; continue; }
+                      else if (str.indexOf(c, j) === j) { d--; j += c.length; continue; }
                       j++;
                     }
                     if (d === 0 && tall) {
-                      var inside = str.slice(idx + 1, j - 1);
+                      var inside = str.slice(idx + o.length, j - c.length);
                       out += l + scalePairs(inside, o, c, l, r) + r;
                       idx = j;
                       continue;
@@ -279,6 +289,15 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
               }
               s = scalePairs(s, '(', ')', '\\left(', '\\right)');
               s = scalePairs(s, '[', ']', '\\left[', '\\right]');
+              s = scalePairs(s, '\\{', '\\}', '\\left\\{', '\\right\\}');
+
+              // Guarantee \displaystyle for tall operators so integrals and fractions render at full truth height
+              if (!s.startsWith('\\displaystyle') && !s.startsWith('\\textstyle')) {
+                if (/\\(?:frac|dfrac|cfrac|int|iint|iiint|oint|sum|prod|lim|matrix|bmatrix|pmatrix|vmatrix|cases)\b/.test(s)) {
+                  s = '\\displaystyle ' + s;
+                }
+              }
+
               return s;
             },
             delimiters: [
@@ -293,9 +312,12 @@ export function preparePrintHtml(options: PreparePrintHtmlOptions): string {
               { left: '\\\\begin{matrix}', right: '\\\\end{matrix}', display: true },
               { left: '\\\\begin{pmatrix}', right: '\\\\end{pmatrix}', display: true },
               { left: '\\\\begin{bmatrix}', right: '\\\\end{bmatrix}', display: true },
+              { left: '\\\\begin{vmatrix}', right: '\\\\end{vmatrix}', display: true },
+              { left: '\\\\begin{Vmatrix}', right: '\\\\end{Vmatrix}', display: true },
               { left: '\\\\begin{gather}', right: '\\\\end{gather}', display: true },
               { left: '\\\\begin{gather*}', right: '\\\\end{gather*}', display: true },
               { left: '\\\\begin{cases}', right: '\\\\end{cases}', display: true },
+              { left: '\\\\begin{aligned}', right: '\\\\end{aligned}', display: true },
               { left: '\\\\begin{CD}', right: '\\\\end{CD}', display: true }
             ],
             macros: {

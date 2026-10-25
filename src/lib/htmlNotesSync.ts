@@ -159,8 +159,8 @@ export function sanitizeAndRepairCode(code: string): string {
   repaired = repaired.replace(/(?<!\\)int_\{([^}]+)\}\^\{([^}]+)\}/g, '\\int_{$1}^{$2}');
   repaired = repaired.replace(/f\(x\)\.dx/g, 'f(x)\\,dx');
 
-  // 5. Decode HTML entities inside math delimiters ($...$ and $$...$$) to avoid KaTeX parse errors
-  repaired = repaired.replace(/(\$\$[\s\S]*?\$\$|\$[^\$\n]+?\$)/g, (match) => {
+  // 5. Decode HTML entities inside math delimiters ($...$, $$...$$, and bare matrix environments) to avoid KaTeX parse errors
+  repaired = repaired.replace(/(\$\$[\s\S]*?\$\$|\$[^\$\n]+?\$|\\begin\{(?:b|p|v|V|small)?matrix|cases|aligned|array\}[\s\S]+?\\end\{(?:b|p|v|V|small)?matrix|cases|aligned|array\})/g, (match) => {
     return match
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')

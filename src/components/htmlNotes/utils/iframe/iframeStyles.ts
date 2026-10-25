@@ -20,6 +20,97 @@ interface FluidStylesOptions {
   isDark?: boolean;
 }
 
+export const SHARED_KATEX_FONTS_AND_DELIMITER_STYLES = `
+  /* High-Resolution KaTeX Fonts Suite (jsdelivr CDN) */
+  @font-face {
+    font-family: 'KaTeX_Main';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_Main-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'KaTeX_Main';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_Main-Bold.woff2') format('woff2');
+    font-weight: bold;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'KaTeX_Main';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_Main-Italic.woff2') format('woff2');
+    font-weight: normal;
+    font-style: italic;
+  }
+  @font-face {
+    font-family: 'KaTeX_Math';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_Math-Italic.woff2') format('woff2');
+    font-weight: normal;
+    font-style: italic;
+  }
+  @font-face {
+    font-family: 'KaTeX_Size1';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_Size1-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'KaTeX_Size2';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_Size2-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'KaTeX_Size3';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_Size3-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'KaTeX_Size4';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_Size4-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'KaTeX_AMS';
+    src: url('https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/fonts/KaTeX_AMS-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+  }
+
+  /* Delimiter sizing & matrix typography rules */
+  .katex {
+    text-rendering: auto !important;
+  }
+  .katex .delimsizing {
+    font-family: KaTeX_Size1, KaTeX_Size2, KaTeX_Size3, KaTeX_Size4, KaTeX_Main, sans-serif !important;
+  }
+  .katex .delimsizing.size1, .katex .delimsizing.size1 * { font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.size2, .katex .delimsizing.size2 * { font-family: KaTeX_Size2, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.size3, .katex .delimsizing.size3 * { font-family: KaTeX_Size3, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.size4, .katex .delimsizing.size4 * { font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.mult .delim-size1 > span { font-family: KaTeX_Size1, KaTeX_Main, sans-serif !important; }
+  .katex .delimsizing.mult .delim-size4 > span { font-family: KaTeX_Size4, KaTeX_Main, sans-serif !important; }
+  .katex .mopen:not(.delimsizing), .katex .mclose:not(.delimsizing) { font-family: KaTeX_Main, 'Inter', sans-serif !important; }
+  .katex .mtable {
+    vertical-align: middle !important;
+  }
+  .katex .mtable .col-align-c {
+    text-align: center !important;
+  }
+  .katex .mtable .col-align-l {
+    text-align: left !important;
+  }
+  .katex .mtable .col-align-r {
+    text-align: right !important;
+  }
+  .katex .matrix {
+    display: inline-table !important;
+  }
+  .katex .mfrac .frac-line {
+    border-bottom-style: solid !important;
+  }
+`;
+
 export function getA4PrintSpecStyles(options: A4StylesOptions): string {
   const {
     zoomLevel,
@@ -39,6 +130,8 @@ export function getA4PrintSpecStyles(options: A4StylesOptions): string {
   :root {
     --paper-zoom: ${zoomLevel / 100};
   }
+
+  ${SHARED_KATEX_FONTS_AND_DELIMITER_STYLES}
 
   * {
     box-sizing: border-box !important;
@@ -1306,6 +1399,8 @@ export function getDocumentPrintSpecStyles(options: DocumentPrintSpecOptions = {
   }
 
   /* KaTeX Math */
+  ${SHARED_KATEX_FONTS_AND_DELIMITER_STYLES}
+
   .katex-display {
     margin: 0.4em 0 !important;
     page-break-inside: avoid !important;

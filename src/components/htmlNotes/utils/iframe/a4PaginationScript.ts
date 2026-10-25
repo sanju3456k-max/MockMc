@@ -400,6 +400,9 @@ export function getA4PaginationScript(
       if (typeof window.wrapAndAttachAllImages === 'function') {
         window.wrapAndAttachAllImages();
       }
+      if (window.__isEditModeActive && typeof window.applyEditModeState === 'function') {
+        window.applyEditModeState(true);
+      }
     } catch(err) {}
   }
 
@@ -506,11 +509,17 @@ export function getA4PaginationScript(
       window.renderKaTeXMathInDocument();
     }
     runA4Pagination();
+    if (window.__isEditModeActive && typeof window.applyEditModeState === 'function') {
+      window.applyEditModeState(true);
+    }
     setTimeout(function() {
       if (typeof window.renderKaTeXMathInDocument === 'function') {
         window.renderKaTeXMathInDocument();
       }
       runA4Pagination();
+      if (window.__isEditModeActive && typeof window.applyEditModeState === 'function') {
+        window.applyEditModeState(true);
+      }
     }, 350);
   }
 

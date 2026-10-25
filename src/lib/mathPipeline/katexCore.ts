@@ -53,33 +53,47 @@ function autoScaleTallDelimiters(str: string, openChar: string, closeChar: strin
   let res = '';
   let i = 0;
   while (i < str.length) {
-    if (str[i] === openChar) {
+    if (str.startsWith(openChar, i)) {
       const prefix = str.slice(Math.max(0, i - 6), i);
       if (/\\(left|right)$/.test(prefix) || /\\$/.test(prefix)) {
-        res += str[i];
-        i++;
+        res += str.slice(i, i + openChar.length);
+        i += openChar.length;
         continue;
       }
 
       let depth = 1;
-      let j = i + 1;
+      let j = i + openChar.length;
       let hasTall = false;
       while (j < str.length && depth > 0) {
         if (str[j] === '\\') {
           const rem = str.slice(j);
-          if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array)\b/.test(rem)) {
+          if (/^\\(?:frac|dfrac|cfrac|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array|int|iint|iiint|oint|sum|prod|lim)\b/.test(rem)) {
             hasTall = true;
           }
-          j += 2;
+          // Move past the backslash and command word, or single symbol escape
+          j++;
+          if (j < str.length && /[a-zA-Z]/.test(str[j])) {
+            while (j < str.length && /[a-zA-Z]/.test(str[j])) j++;
+          } else if (j < str.length) {
+            // Escaped special character (e.g. \{, \}, \[, \], etc.)
+            j++;
+          }
           continue;
         }
-        if (str[j] === openChar) depth++;
-        else if (str[j] === closeChar) depth--;
+        if (str.startsWith(openChar, j)) {
+          depth++;
+          j += openChar.length;
+          continue;
+        } else if (str.startsWith(closeChar, j)) {
+          depth--;
+          j += closeChar.length;
+          continue;
+        }
         j++;
       }
 
       if (depth === 0 && hasTall) {
-        const inside = str.slice(i + 1, j - 1);
+        const inside = str.slice(i + openChar.length, j - closeChar.length);
         res += leftCmd + autoScaleTallDelimiters(inside, openChar, closeChar, leftCmd, rightCmd) + rightCmd;
         i = j;
         continue;
@@ -109,13 +123,14 @@ export function normalizeLatexMath(rawMath: string, isDisplay: boolean): string 
   s = s.replace(/(?:^|[^\\])\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\)/g, '\\begin{pmatrix}$1\\end{pmatrix}');
   s = s.replace(/(?:^|[^\\])\|\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\|/g, '\\begin{vmatrix}$1\\end{vmatrix}');
 
-  // 3. Promote balanced ( ... \frac ... ) and [ ... \frac ... ] to full-height delimiters
+  // 3. Promote balanced ( ... \frac ... ), [ ... \frac ... ], and \{ ... \frac ... \} to full-height delimiters
   s = autoScaleTallDelimiters(s, '(', ')', '\\left(', '\\right)');
   s = autoScaleTallDelimiters(s, '[', ']', '\\left[', '\\right]');
+  s = autoScaleTallDelimiters(s, '\\{', '\\}', '\\left\\{', '\\right\\}');
 
-  // 4. Inject \displaystyle for inline equations that contain tall operators (fractions, sums, integrals, limits)
+  // 4. Inject \displaystyle for inline equations that contain tall operators (fractions, sums, integrals, limits, matrices)
   if (!isDisplay && !s.startsWith('\\displaystyle') && !s.startsWith('\\textstyle')) {
-    if (/\\(?:frac|dfrac|cfrac|int|iint|iiint|oint|sum|prod|lim|matrix|bmatrix|pmatrix|vmatrix|cases)\b/.test(s)) {
+    if (/\\(?:frac|dfrac|cfrac|int|iint|iiint|oint|sum|prod|lim|matrix|bmatrix|pmatrix|vmatrix|Vmatrix|cases|array)\b/.test(s)) {
       s = `\\displaystyle ${s}`;
     }
   }

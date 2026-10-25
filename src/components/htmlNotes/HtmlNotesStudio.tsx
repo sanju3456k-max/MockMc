@@ -985,7 +985,18 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         }
       `;
 
-      portalEl.innerHTML = `${headStyles}\n${bodyHtml}`;
+      // Mount print styles in document.head so the browser print engine evaluates all fonts and KaTeX CSS immediately
+      const printHeadHostId = 'studio-print-head-host';
+      let printHeadHost = document.getElementById(printHeadHostId);
+      if (printHeadHost && printHeadHost.parentNode) {
+        printHeadHost.parentNode.removeChild(printHeadHost);
+      }
+      printHeadHost = document.createElement('div');
+      printHeadHost.id = printHeadHostId;
+      printHeadHost.innerHTML = headStyles;
+      document.head.appendChild(printHeadHost);
+
+      portalEl.innerHTML = bodyHtml;
       document.body.appendChild(portalEl);
 
       const activeFile = activeProjectFiles.find(f => f.id === activeFileId);
@@ -998,6 +1009,9 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
         if (portalEl && portalEl.parentNode) {
           portalEl.parentNode.removeChild(portalEl);
         }
+        if (printHeadHost && printHeadHost.parentNode) {
+          printHeadHost.parentNode.removeChild(printHeadHost);
+        }
         if (dynamicStyle && dynamicStyle.parentNode) {
           dynamicStyle.parentNode.removeChild(dynamicStyle);
         }
@@ -1008,8 +1022,13 @@ export const HtmlNotesStudio: React.FC<HtmlNotesStudioProps> = ({
       window.addEventListener('afterprint', cleanup);
       setTimeout(cleanup, 45000);
 
-      // Brief delay to ensure portal DOM settles and styles compute
-      await new Promise(resolve => setTimeout(resolve, 80));
+      // Ensure all KaTeX and web typography fonts are fully loaded before capturing print raster
+      try {
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+      } catch (_) {}
+      await new Promise(resolve => setTimeout(resolve, 150));
 
       // Trigger the native device print dialog directly on main window!
       try {
